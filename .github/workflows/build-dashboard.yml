@@ -38,10 +38,12 @@ jobs:
         run: |
           python scripts/pipeline.py
 
-      - name: Copy JSON to site data
+      - name: Copy data to site
         run: |
-          mkdir -p site/data
-          cp data/output/*.json site/data/
+          mkdir -p site/data/reference
+          cp data/reference/*.yaml site/data/reference/
+          # Optional: if you still want JSONs from pipeline (though we moved to client-side)
+          # cp data/output/*.json site/data/ || true
 
       - name: Setup Pages
         uses: actions/configure-pages@v4

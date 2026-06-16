@@ -11,12 +11,13 @@ const API = {
         }
     },
 
-    getMapping: () => API.fetchYaml('../data/reference/instruments_mapping.yaml'),
-    getTargets: () => API.fetchYaml('../data/reference/asset_classes.yaml'),
+    getMapping: () => API.fetchYaml('data/reference/instruments_mapping.yaml'),
+    getTargets: () => API.fetchYaml('data/reference/asset_classes.yaml'),
 
     async getMarketData(walory, mapping) {
         const quotes = {};
         const fxRates = { "PLNPLN=X": 1.0 };
+        const safeMapping = mapping || {};
 
         try {
             // 1. Fetch FX Rates from NBP
@@ -40,7 +41,7 @@ const API = {
         const proxy = "https://corsproxy.io/?";
         
         for (const walor of walory) {
-            const symbol = mapping[walor]?.yahoo_symbol;
+            const symbol = safeMapping[walor]?.yahoo_symbol;
             if (!symbol) {
                 quotes[walor] = { last_close: 0 };
                 continue;
