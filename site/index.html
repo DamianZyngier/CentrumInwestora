@@ -6,6 +6,8 @@
     <title>Centrum Inwestora</title>
     <link rel="stylesheet" href="css/styles.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/js-yaml/4.1.0/js-yaml.min.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
@@ -14,10 +16,24 @@
     <div class="container">
         <header>
             <h1>Centrum Inwestora</h1>
-            <p>Twój portfel w jednym miejscu. Dane aktualizowane automatycznie.</p>
+            <p>Twoje dane inwestycyjne. Przechowywane bezpiecznie w Twojej przeglądarce.</p>
         </header>
 
-        <!-- Metrics Cards -->
+        <!-- Data Management Section -->
+        <section class="section" id="import-section">
+            <h2>Zarządzanie Danymi</h2>
+            <div class="card import-card">
+                <p>Załaduj pliki CSV z historią transakcji (możesz wybrać wiele plików jednocześnie).</p>
+                <div class="import-controls">
+                    <input type="file" id="csv-file-input" accept=".csv" multiple>
+                    <button id="clear-db-btn" class="btn-danger">Wyczyść wszystkie dane</button>
+                </div>
+                <div id="import-status" class="status-msg"></div>
+            </div>
+        </section>
+
+        <div id="dashboard-content" style="display: none;">
+            <!-- Metrics Cards -->
         <section class="section">
             <div class="cards" id="summary-cards">
                 <div class="card">
@@ -137,11 +153,15 @@
             </div>
         </section>
 
+        </div>
+
         <footer>
             Ostatnia aktualizacja danych: <span id="last-updated">---</span> | Generowane przez Centrum Inwestora
         </footer>
     </div>
 
+    <script src="js/db.js"></script>
+    <script src="js/processor.js"></script>
     <script src="js/api.js"></script>
     <script src="js/charts.js"></script>
     <script src="js/main.js"></script>
