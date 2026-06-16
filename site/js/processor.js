@@ -46,10 +46,17 @@ const Processor = {
 
     parseDate(dateStr) {
         if (!dateStr) return 0;
-        // Format: 23.02.2026 09:04:48
-        const parts = dateStr.split(' ');
-        const dateParts = parts[0].split('.');
-        return new Date(`${dateParts[2]}-${dateParts[1]}-${dateParts[0]}T${parts[1] || '00:00:00'}`).getTime();
+        // Supports: "23.02.2026 09:04:48", "23.02.2026", "2026-02-23", "2026-02-23T09:04:48"
+        let date;
+        if (dateStr.includes('.')) {
+            const parts = dateStr.split(' ');
+            const dateParts = parts[0].split('.');
+            // DD.MM.YYYY
+            date = new Date(`${dateParts[2]}-${dateParts[1]}-${dateParts[0]}T${parts[1] || '00:00:00'}`);
+        } else {
+            date = new Date(dateStr);
+        }
+        return isNaN(date.getTime()) ? 0 : date.getTime();
     },
 
     async calculateMetrics(transactions, mapping, targets, quotes, fxRates) {

@@ -67,8 +67,12 @@ async function refreshDashboard() {
     const targets = await API.getTargets();
     
     // Get market data
-    const walory = [...new Set(transactions.map(t => t.walor))];
-    const { quotes, fxRates } = await API.getMarketData(walory, mapping);
+    const assets = transactions.reduce((acc, t) => {
+        if (!acc[t.walor]) acc[t.walor] = t.gielda;
+        return acc;
+    }, {});
+    
+    const { quotes, fxRates } = await API.getMarketData(assets, mapping);
 
     // Calculate metrics
     const metrics = await Processor.calculateMetrics(transactions, mapping, targets, quotes, fxRates);
