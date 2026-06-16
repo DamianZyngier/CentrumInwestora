@@ -1,0 +1,35 @@
+# Mapowanie nazw z CSV na symbole Yahoo Finance i metadane
+"XCS5 GR ETF":
+  exchange: "DEU"
+  yahoo_symbol: "XCS5.DE"
+  asset_class: "Equity - Developed"
+  region: "Developed Markets"
+  currency: "EUR"
+
+"NDIA LN ETF":
+  exchange: "LON"
+  yahoo_symbol: "NDIA.L"
+  asset_class: "Equity - Emerging"
+  region: "India"
+  currency: "USD"
+
+"SGLN LN ETC":
+  exchange: "LON"
+  yahoo_symbol: "SGLN.L"
+  asset_class: "Gold"
+  region: "Global"
+  currency: "USD"
+
+"DINOPL":
+  exchange: "WWA"
+  yahoo_symbol: "DNP.WA"
+  asset_class: "Equity - Poland"
+  region: "Poland"
+  currency: "PLN"
+
+"EMXC LN ETF":
+  exchange: "LON"
+  yahoo_symbol: "EMXC.L"
+  asset_class: "Equity - Emerging"
+  region: "Emerging Markets ex China"
+  currency: "USD"

@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Centrum Inwestora</title>
+    <link rel="stylesheet" href="css/styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Centrum Inwestora</h1>
+            <p>Twój portfel w jednym miejscu. Dane aktualizowane automatycznie.</p>
+        </header>
+
+        <!-- Metrics Cards -->
+        <section class="section">
+            <div class="cards" id="summary-cards">
+                <div class="card">
+                    <h3>Wartość Portfela</h3>
+                    <div class="value" id="total-value">---</div>
+                </div>
+                <div class="card">
+                    <h3>Kapitał Wpłacony</h3>
+                    <div class="value" id="total-invested">---</div>
+                </div>
+                <div class="card">
+                    <h3>Zysk / Strata</h3>
+                    <div class="value" id="total-pl">---</div>
+                </div>
+                <div class="card">
+                    <h3>Zysk / Strata %</h3>
+                    <div class="value" id="total-pl-percent">---</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Charts -->
+        <section class="section">
+            <div class="charts-grid">
+                <div class="chart-container">
+                    <h2>Wartość Portfela w Czasie</h2>
+                    <canvas id="timeseriesChart"></canvas>
+                </div>
+                <div class="chart-container">
+                    <h2>Struktura Aktywów</h2>
+                    <canvas id="assetStructChart"></canvas>
+                </div>
+            </div>
+        </section>
+
+        <!-- Portfolio Positions -->
+        <section class="section">
+            <h2>Aktualne Pozycje</h2>
+            <div class="table-container">
+                <table id="portfolio-table">
+                    <thead>
+                        <tr>
+                            <th>Walor</th>
+                            <th>Klasa</th>
+                            <th>Jednostki</th>
+                            <th>Średni Kurs</th>
+                            <th>Cena Rynkowa</th>
+                            <th>Wartość [PLN]</th>
+                            <th>Zysk/Strata [PLN]</th>
+                            <th>Waga %</th>
+                        </tr>
+                    </thead>
+                    <tbody id="portfolio-body">
+                        <!-- Filled by JS -->
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Recommendations -->
+        <section class="section">
+            <h2>Rekomendacje Rebalancingu</h2>
+            <div id="recommendations-container">
+                <!-- Filled by JS -->
+            </div>
+        </section>
+
+        <!-- Transactions -->
+        <section class="section">
+            <h2>Historia Transakcji</h2>
+            <div class="filters">
+                <label>
+                    Szukaj waloru
+                    <input type="text" id="search-ticker" placeholder="np. DINOPL">
+                </label>
+                <label>
+                    Typ
+                    <select id="filter-type">
+                        <option value="">Wszystkie</option>
+                        <option value="Kupno">Kupno</option>
+                        <option value="Sprzedaż">Sprzedaż</option>
+                    </select>
+                </label>
+            </div>
+            <div class="table-container">
+                <table id="transactions-table">
+                    <thead>
+                        <tr>
+                            <th>Data</th>
+                            <th>Walor</th>
+                            <th>K/S</th>
+                            <th>Liczba</th>
+                            <th>Kurs</th>
+                            <th>Wartość [PLN]</th>
+                            <th>Prowizja [PLN]</th>
+                        </tr>
+                    </thead>
+                    <tbody id="transactions-body">
+                        <!-- Filled by JS -->
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <footer>
+            Ostatnia aktualizacja danych: <span id="last-updated">---</span> | Generowane przez Centrum Inwestora
+        </footer>
+    </div>
+
+    <script src="js/api.js"></script>
+    <script src="js/charts.js"></script>
+    <script src="js/main.js"></script>
+</body>
+</html>

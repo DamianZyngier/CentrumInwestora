@@ -1,0 +1,11 @@
+.idea/
+__pycache__/
+*.py[cod]
+*$py.class
+data/processed/
+data/output/
+site/data/*.json
+.venv/
+venv/
+ENV/
+*.parquet

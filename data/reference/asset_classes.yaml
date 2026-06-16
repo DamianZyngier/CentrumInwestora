@@ -1,0 +1,7 @@
+# Docelowe wagi portfela dla rekomendacji rebalancingu
+targets:
+  "Equity - Developed": 0.50
+  "Equity - Emerging": 0.20
+  "Gold": 0.10
+  "Equity - Poland": 0.10
+  "Cash / Bonds": 0.10
