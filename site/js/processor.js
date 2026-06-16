@@ -119,6 +119,7 @@ const Processor = {
         // Timeseries
         const daily_cf = {};
         sorted.forEach(t => {
+            if (!t.data || typeof t.data !== 'string') return;
             const d = t.data.split(' ')[0];
             daily_cf[d] = (daily_cf[d] || 0) + t.cash_flow_pln;
         });
