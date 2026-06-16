@@ -1,11 +1,31 @@
+# IDEs and editors
 .idea/
+.vscode/
+*.swp
+*.swo
+
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
-data/processed/
-data/output/
-site/data/*.json
 .venv/
 venv/
 ENV/
+.env
+build/
+dist/
+*.egg-info/
+
+# Project specific data
+data/processed/
+data/output/
+site/data/*.json
 *.parquet
+
+# Logs
+*.log
+
+# OS generated files
+.DS_Store
+Thumbs.db
+desktop.ini
