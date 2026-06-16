@@ -2,9 +2,10 @@ name: Build and Deploy Investor Center
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, master ]
     paths:
       - 'data/raw/**'
+      - 'data/reference/**'
       - 'scripts/**'
       - 'site/**'
       - 'requirements.txt'
