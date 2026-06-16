@@ -19,7 +19,45 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Filters
     document.getElementById('search-ticker').addEventListener('input', () => filterTransactions(transactions));
     document.getElementById('filter-type').addEventListener('change', () => filterTransactions(transactions));
+
+    // Time Range Selector
+    document.getElementById('time-range-selector').addEventListener('click', (e) => {
+        if (e.target.tagName === 'BUTTON') {
+            const range = e.target.dataset.range;
+            
+            // Toggle active class
+            document.querySelectorAll('#time-range-selector button').forEach(btn => btn.classList.remove('active'));
+            e.target.classList.add('active');
+
+            const filteredData = filterTimeseriesData(timeseries, range);
+            updateTimeseriesChart(filteredData);
+        }
+    });
 });
+
+function filterTimeseriesData(data, range) {
+    if (range === 'all') return data;
+
+    const now = new Date();
+    let cutoffDate = new Date();
+
+    if (range === '1m') cutoffDate.setMonth(now.getMonth() - 1);
+    else if (range === '3m') cutoffDate.setMonth(now.getMonth() - 3);
+    else if (range === '6m') cutoffDate.setMonth(now.getMonth() - 6);
+    else if (range === '1y') cutoffDate.setFullYear(now.getFullYear() - 1);
+    else if (range === '2y') cutoffDate.setFullYear(now.getFullYear() - 2);
+    else if (range === '5y') cutoffDate.setFullYear(now.getFullYear() - 5);
+
+    const cutoffStr = cutoffDate.toISOString().split('T')[0];
+    
+    const indices = data.dates.map((d, i) => d >= cutoffStr ? i : -1).filter(i => i !== -1);
+    
+    return {
+        dates: indices.map(i => data.dates[i]),
+        invested_pln: indices.map(i => data.invested_pln[i]),
+        portfolio_value_pln: indices.map(i => data.portfolio_value_pln[i])
+    };
+}
 
 function formatPLN(val) {
     return new Intl.NumberFormat('pl-PL', { style: 'currency', currency: 'PLN' }).format(val);

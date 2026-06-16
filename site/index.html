@@ -43,7 +43,18 @@
         <section class="section">
             <div class="charts-grid">
                 <div class="chart-container">
-                    <h2>Wartość Portfela w Czasie</h2>
+                    <div class="chart-header">
+                        <h2>Wartość Portfela w Czasie</h2>
+                        <div class="range-selector" id="time-range-selector">
+                            <button data-range="1m">1m</button>
+                            <button data-range="3m">3m</button>
+                            <button data-range="6m">6m</button>
+                            <button data-range="1y">1r</button>
+                            <button data-range="2y">2r</button>
+                            <button data-range="5y">5r</button>
+                            <button data-range="all" class="active">ALL</button>
+                        </div>
+                    </div>
                     <div class="canvas-wrapper">
                         <canvas id="timeseriesChart"></canvas>
                     </div>
