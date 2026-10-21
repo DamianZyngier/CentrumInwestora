@@ -1,0 +1,19 @@
+services:
+  centrum-inwestora:
+    build: .
+    container_name: centrum-inwestora
+    ports:
+      - "8080:8080"
+    volumes:
+      - cache-data:/app/cache
+    environment:
+      - TZ=Europe/Warsaw
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  cache-data:

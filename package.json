@@ -1,0 +1,14 @@
+{
+  "name": "centrum-inwestora",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Local-first dashboard inwestycyjny (statyczny frontend + lokalny proxy rynkowy)",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server/server.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

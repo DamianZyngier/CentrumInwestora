@@ -1,0 +1,16 @@
+# Ręczny fallback dla splitów.
+#
+# Aplikacja pobiera splity z Yahoo Finance, ale poniższe wpisy działają także
+# bez internetu i zabezpieczają dane historyczne przed błędną liczbą jednostek.
+#
+# Format: symbol Yahoo -> lista {date: data odcięcia, ratio: stosunek nowych
+# jednostek do starych}. Transakcje sprzed daty splitu są mnożone przez ratio,
+# a ich cena jednostkowa dzielona przez ratio (wartość i koszt pozostają bez zmian).
+
+"BLO.WA":
+  - date: "2021-03-18"
+    ratio: 10
+
+"DNP.WA":
+  - date: "2025-07-31"
+    ratio: 10

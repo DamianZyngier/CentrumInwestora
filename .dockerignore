@@ -1,0 +1,12 @@
+.git
+.github
+.idea
+.vscode
+cache
+data/raw
+data/processed
+data/output
+tests
+*.md
+*.parquet
+node_modules

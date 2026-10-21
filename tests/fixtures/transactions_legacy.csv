@@ -1,0 +1,4 @@
+Walor;Giełda;K/S;Liczba;Kurs;Waluta;Wartość;Prowizja;Czas transakcji;Waluta rozliczenia;Kurs Przewalutowania
+DINOPL;WWA;Kupno;10;300,00;PLN;3000,00;5,00;06.12.2021 09:00:00;PLN;
+SGLN LN ETC;LON;Kupno;5;60,00;GBP;300,00;0,00;19.03.2026 15:04:31;PLN;4,9656
+DINOPL;WWA;Sprzedaż;4;350,00;PLN;1400,00;5,00;24.04.2026 09:00:00;PLN;

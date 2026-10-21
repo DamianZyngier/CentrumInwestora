@@ -279,3 +279,151 @@ footer {
     margin-top: 4rem;
     padding-bottom: 2rem;
 }
+
+/* Banner / komunikaty */
+.banner {
+    padding: 1rem 1.25rem;
+    border-radius: 0.75rem;
+    margin-bottom: 2rem;
+    border: 1px solid var(--border);
+    font-size: 0.875rem;
+    line-height: 1.5;
+}
+
+.banner.hidden { display: none; }
+
+.banner.info {
+    background: rgba(56, 189, 248, 0.08);
+    border-color: rgba(56, 189, 248, 0.35);
+    color: #bae6fd;
+}
+
+.banner.warning {
+    background: rgba(245, 158, 11, 0.08);
+    border-color: rgba(245, 158, 11, 0.4);
+    color: #fcd34d;
+}
+
+.banner.error {
+    background: rgba(239, 68, 68, 0.08);
+    border-color: rgba(239, 68, 68, 0.4);
+    color: #fca5a5;
+}
+
+.banner ul {
+    margin: 0 0 0 1.2rem;
+    padding: 0;
+}
+
+/* Import */
+.hint {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    line-height: 1.6;
+    max-width: 820px;
+    margin: 0.75rem auto 0;
+}
+
+.import-options {
+    display: flex;
+    justify-content: center;
+    align-items: flex-end;
+    gap: 1.5rem;
+    flex-wrap: wrap;
+    margin-top: 1.25rem;
+}
+
+.import-options label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.backup-actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.btn-ghost {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-color);
+    padding: 0.5rem 1rem;
+    border-radius: 0.5rem;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 0.8rem;
+    transition: background 0.2s;
+}
+
+.btn-ghost:hover { background: #273549; }
+
+.file-button {
+    display: inline-flex;
+    align-items: center;
+    line-height: 1;
+}
+
+.status-msg.success { color: var(--success); }
+.status-msg.error { color: var(--danger); }
+.status-msg.info { color: var(--accent-color); }
+
+.status-msg details {
+    margin-top: 0.6rem;
+    text-align: left;
+    color: var(--text-muted);
+    font-size: 0.8rem;
+}
+
+.status-msg summary { cursor: pointer; }
+
+.status-msg ul {
+    margin: 0.4rem 0 0 1.2rem;
+    padding: 0;
+}
+
+/* Drobne elementy */
+.badge {
+    display: inline-block;
+    margin-left: 0.4rem;
+    padding: 0.05rem 0.35rem;
+    border-radius: 0.35rem;
+    background: #334155;
+    color: #e2e8f0;
+    font-size: 0.65rem;
+    font-weight: 700;
+    vertical-align: middle;
+}
+
+.subvalue {
+    font-size: 0.9rem;
+    font-weight: 600;
+    margin-top: 0.25rem;
+}
+
+.neutral { color: var(--text-muted); }
+.small { font-size: 0.7rem; }
+.muted { color: var(--text-muted); }
+
+.empty {
+    text-align: center;
+    color: var(--text-muted);
+    padding: 2rem;
+}
+
+.chart-status {
+    display: block;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-top: 0.25rem;
+}
+
+code {
+    background: #0f172a;
+    padding: 0.05rem 0.3rem;
+    border-radius: 0.25rem;
+    font-size: 0.85em;
+}

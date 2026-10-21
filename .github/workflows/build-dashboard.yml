@@ -1,19 +1,15 @@
-name: Build and Deploy Investor Center
+name: Deploy static site (optional fallback)
+
+# Docelowe uruchomienie: lokalny Docker na Dell Wyse (patrz README).
+# Ten workflow jest tylko opcjonalnym fallbackiem dla GitHub Pages.
+# UWAGA: GitHub Pages nie ma backendu, więc notowania na żywo nie będą działać
+# (Yahoo Finance blokuje CORS). Strona pokaże import i koszt bazowy.
 
 on:
-  push:
-    branches: [ main, master ]
-    paths:
-      - 'data/raw/**'
-      - 'data/reference/**'
-      - 'scripts/**'
-      - 'site/**'
-      - 'requirements.txt'
-      - '.github/workflows/build-dashboard.yml'
   workflow_dispatch: {}
 
 permissions:
-  contents: write
+  contents: read
   pages: write
   id-token: write
 
@@ -24,26 +20,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
-      - name: Run data pipeline
-        run: |
-          python scripts/pipeline.py
-
-      - name: Copy data to site
+      - name: Copy reference data into site
         run: |
           mkdir -p site/data/reference
           cp data/reference/*.yaml site/data/reference/
-          # Optional: if you still want JSONs from pipeline (though we moved to client-side)
-          # cp data/output/*.json site/data/ || true
 
       - name: Setup Pages
         uses: actions/configure-pages@v4

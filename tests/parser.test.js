@@ -1,0 +1,239 @@
+'use strict';
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const Processor = require('../site/js/processor.js');
+
+const fixture = (name) => fs.readFileSync(path.join(__dirname, 'fixtures', name), 'utf8');
+
+test('parser: eksport zleceń - filtruje statusy i używa liczby zrealizowanej', () => {
+  const result = Processor.parseText(`\uFEFF${fixture('orders_2024.csv')}`, 'orders_2024.csv');
+
+  assert.equal(result.format, 'orders');
+  assert.equal(result.transactions.length, 5);
+  assert.equal(result.skipped.length, 2);
+
+  const asbis = result.transactions.find((t) => t.walor === 'ASBIS');
+  assert.equal(asbis.liczba, 10);
+  assert.equal(asbis.kurs, 20);
+  assert.equal(asbis.waluta, 'PLN');
+  assert.equal(asbis.wartosc_oryginalna, 200);
+  assert.equal(asbis.date_iso, '2024-03-15');
+  assert.equal(asbis.ks, 'Kupno');
+  assert.ok(asbis.key.includes('2024-03-15'));
+
+  const partial = result.transactions.find((t) => t.walor === 'CDPROJEKT');
+  assert.equal(partial.liczba, 4, 'bierzemy Liczbę zreal, nie Liczbę');
+  assert.equal(partial.wartosc_oryginalna, 400);
+
+  const sale = result.transactions.find((t) => t.walor === 'EMXC LN ETF');
+  assert.equal(sale.ks, 'Sprzedaż');
+  assert.equal(sale.wartosc_oryginalna, 30);
+});
+
+test('parser: eksport transakcji (stary format) i kurs z pliku', () => {
+  const result = Processor.parseText(fixture('transactions_legacy.csv'), 'legacy.csv');
+
+  assert.equal(result.format, 'transactions');
+  assert.equal(result.transactions.length, 3);
+
+  const buy = result.transactions.find((t) => t.walor === 'DINOPL' && t.ks === 'Kupno');
+  assert.equal(buy.wartosc_oryginalna, 3000);
+  assert.equal(buy.prowizja_oryginalna, 5);
+  assert.equal(buy.fx_fixed, 1);
+  assert.equal(buy.date_iso, '2021-12-06');
+
+  const foreign = result.transactions.find((t) => t.walor === 'SGLN LN ETC');
+  assert.equal(foreign.fx_fixed, 4.9656);
+});
+
+test('parser: odrzuca nieznany format', () => {
+  assert.throws(
+    () => Processor.parseText('foo;bar\n1;2', 'unknown.csv'),
+    /Nierozpoznany format/
+  );
+});
+
+test('parser: nie importuje statusu "Niezrealizowane", nieznanego kierunku i woli datę realizacji', () => {
+  const csv = [
+    'Stan;Walor;Giełda;K/S;Liczba;Liczba zreal;Limit;Waluta;Data ważności;Data realizacji',
+    'Niezrealizowane;ASBIS;WWA;Kupno;10;10;20,00;PLN;01.01.2024;02.01.2024',
+    'Zrealizowane;CDPROJEKT;WWA;Nieznany;10;10;100,00;PLN;01.01.2024;02.01.2024',
+    'Zrealizowane;DINOPL;WWA;Kupno;10;10;340,00;PLN;01.01.2024;05.01.2024',
+  ].join('\n');
+
+  const result = Processor.parseText(csv, 'statusy.csv');
+  assert.equal(result.transactions.length, 1);
+  assert.equal(result.transactions[0].walor, 'DINOPL');
+  assert.equal(result.transactions[0].date_iso, '2024-01-05');
+  assert.equal(result.skipped.length, 2);
+  assert.match(result.skipped[0].reason, /status: Niezrealizowane/);
+  assert.match(result.skipped[1].reason, /nieznany kierunek/);
+});
+
+test('kursy walut: przelicza wartość, prowizję i cash flow', async () => {
+  const parsed = Processor.parseText(fixture('orders_2024.csv'), 'orders.csv');
+  await Processor.applyFx(parsed.transactions, async (currency) => ({
+    currency,
+    rate: currency === 'GBP' ? 5 : currency === 'USD' ? 4 : 1,
+    source: 'test',
+  }));
+
+  const sgl = parsed.transactions.find((t) => t.walor === 'SGLN LN ETC');
+  assert.equal(sgl.value_pln, 500);
+  assert.equal(sgl.fee_pln, 0);
+  assert.equal(sgl.cash_flow_pln, -500);
+
+  const sale = parsed.transactions.find((t) => t.walor === 'EMXC LN ETF');
+  assert.equal(sale.value_pln, 120);
+  assert.equal(sale.cash_flow_pln, 120);
+});
+
+test('splity: korygują jednostki i cenę, są idempotentne', () => {
+  const parsed = Processor.parseText(fixture('orders_2024.csv'), 'orders.csv');
+  const transaction = parsed.transactions.find((t) => t.walor === 'DINOPL');
+  transaction.symbol = 'DNP.WA';
+
+  Processor.applySplits(parsed.transactions, { 'DNP.WA': [{ date: '2025-07-31', ratio: 10 }] });
+  assert.equal(transaction.liczba, 10);
+  assert.equal(transaction.kurs, 34);
+  assert.equal(transaction.wartosc_oryginalna, 340);
+
+  Processor.applySplits(parsed.transactions, { 'DNP.WA': [{ date: '2025-07-31', ratio: 10 }] });
+  assert.equal(transaction.liczba, 10, 'drugie wywołanie nie może mnożyć ponownie');
+  assert.equal(transaction.kurs, 34);
+});
+
+test('metryki: średni koszt, zysk zrealizowany i niezrealizowany', () => {
+  const mapping = {
+    ASBIS: { yahoo_symbol: 'ASB.WA', asset_class: 'Equity - Poland', exchange: 'WWA' },
+    'SGLN LN ETC': { yahoo_symbol: 'SGLN.L', asset_class: 'Gold', exchange: 'LON' },
+  };
+  const quotes = {
+    'ASB.WA': { price: 25, currency: 'PLN', name: 'ASBIS' },
+    'SGLN.L': { price: 60, currency: 'GBP', name: 'Gold' },
+  };
+  const fxRates = { PLN: 1, GBP: 5 };
+
+  const transactions = [
+    {
+      walor: 'ASBIS', gielda: 'WWA', ks: 'Kupno', liczba: 10, kurs: 20, waluta: 'PLN',
+      date_iso: '2024-01-01', timestamp: Date.UTC(2024, 0, 1), value_pln: 200,
+      fee_pln: 0, symbol: 'ASB.WA',
+    },
+    {
+      walor: 'ASBIS', gielda: 'WWA', ks: 'Sprzedaż', liczba: 2, kurs: 30, waluta: 'PLN',
+      date_iso: '2024-02-01', timestamp: Date.UTC(2024, 1, 1), value_pln: 60,
+      fee_pln: 0, symbol: 'ASB.WA',
+    },
+    {
+      walor: 'SGLN LN ETC', gielda: 'LON', ks: 'Kupno', liczba: 2, kurs: 50, waluta: 'GBP',
+      date_iso: '2024-03-01', timestamp: Date.UTC(2024, 2, 1), value_pln: 500,
+      fee_pln: 0, symbol: 'SGLN.L',
+    },
+  ];
+
+  const metrics = Processor.calculateMetrics(transactions, mapping, quotes, fxRates);
+  const summary = metrics.summary;
+  const asbis = metrics.portfolio_list.find((p) => p.walor === 'ASBIS');
+
+  assert.equal(asbis.units, 8);
+  assert.equal(asbis.avg_cost_pln, 20);
+  assert.equal(asbis.value_pln, 200);
+  assert.equal(asbis.unrealized_pl_pln, 40);
+  assert.equal(asbis.realized_pl_pln, 20);
+
+  assert.equal(summary.realized_pl_pln, 20);
+  assert.equal(summary.unrealized_pl_pln, 140);
+  assert.equal(summary.total_pl_pln, 160);
+  assert.equal(summary.total_value_pln, 800);
+  assert.equal(summary.valuation_complete, true);
+  assert.ok(Math.abs(summary.total_pl_pct - (160 / 700) * 100) < 1e-9);
+  assert.ok(Math.abs(metrics.struct_asset.Gold - 0.75) < 1e-9);
+});
+
+test('metryki: brak notowania oznacza wycenę niepełną', () => {
+  const transactions = [
+    {
+      walor: 'UNKNOWN', gielda: 'WWA', ks: 'Kupno', liczba: 1, kurs: 100, waluta: 'PLN',
+      date_iso: '2024-01-01', timestamp: Date.UTC(2024, 0, 1), value_pln: 100,
+      fee_pln: 0, symbol: 'UNKNOWN.WA',
+    },
+  ];
+  const metrics = Processor.calculateMetrics(transactions, {}, {}, { PLN: 1 });
+  assert.equal(metrics.summary.valuation_complete, false);
+  assert.equal(metrics.summary.missing_quotes.length, 1);
+  assert.equal(metrics.portfolio_list[0].value_pln, null);
+});
+
+test('metryki: brak kursu walutowego oznacza wycenę niepełną', () => {
+  const transactions = [
+    {
+      walor: 'X', gielda: 'SWX', ks: 'Kupno', liczba: 1, kurs: 100, waluta: 'CHF',
+      date_iso: '2024-01-01', timestamp: Date.UTC(2024, 0, 1), value_pln: 460,
+      fee_pln: 0, symbol: 'X.SW',
+    },
+  ];
+  const quotes = { 'X.SW': { symbol: 'X.SW', price: 100, currency: 'CHF' } };
+  const mapping = { X: { yahoo_symbol: 'X.SW' } };
+  const metrics = Processor.calculateMetrics(transactions, mapping, quotes, { PLN: 1 });
+  assert.equal(metrics.summary.valuation_complete, false);
+  assert.equal(metrics.summary.missing_quotes.length, 1);
+  assert.match(metrics.summary.missing_quotes[0].reason, /brak kursu CHF/);
+  assert.equal(metrics.portfolio_list[0].value_pln, null);
+});
+
+test('metryki: sprzedaż bez pozycji jest wypłatą, ale nie tworzy zysku', () => {
+  const transactions = [
+    {
+      walor: 'EMXC LN ETF', gielda: 'LON', ks: 'Sprzedaż', liczba: 1, kurs: 30,
+      waluta: 'USD', date_iso: '2026-05-18', timestamp: Date.UTC(2026, 4, 18),
+      value_pln: 120, fee_pln: 0, symbol: 'EMXC.L',
+    },
+  ];
+  const metrics = Processor.calculateMetrics(transactions, {}, {}, { PLN: 1 });
+  assert.equal(metrics.summary.realized_pl_pln, 0);
+  assert.equal(metrics.summary.withdrawn_pln, 120);
+  assert.equal(metrics.summary.net_invested_pln, -120);
+  assert.match(metrics.warnings[0], /brak posiadanych jednostek/);
+});
+
+test('szereg czasowy: wartość portfela z historii i splitów', () => {
+  const transactions = [
+    {
+      walor: 'DINOPL', gielda: 'WWA', ks: 'Kupno', liczba: 10, kurs: 34, waluta: 'PLN',
+      date_iso: '2021-12-06', timestamp: Date.UTC(2021, 11, 6), value_pln: 340,
+      fee_pln: 0, cash_flow_pln: -340, symbol: 'DNP.WA',
+    },
+  ];
+  const histories = {
+    'DNP.WA': {
+      currency: 'PLN',
+      dates: ['2021-12-06', '2021-12-07', '2021-12-08'],
+      closes: [34, 35, 36],
+    },
+  };
+  const series = Processor.buildPortfolioSeries(transactions, histories, {}, { fallbackRates: { PLN: 1 } });
+
+  assert.equal(series.mode, 'valuation');
+  assert.equal(series.dates[0], '2021-12-06');
+  assert.equal(series.portfolio_value_pln[0], 340);
+  assert.equal(series.portfolio_value_pln[1], 350);
+  assert.equal(series.invested_pln[0], 340);
+  // Ostatni punkt = ostatnia znana cena (forward fill).
+  assert.equal(series.portfolio_value_pln.at(-1), 360);
+  assert.equal(series.incomplete, false);
+});
+
+test('rekomendacje: niedowaga, przewaga i koncentracja', () => {
+  const items = Processor.buildRecommendations(
+    { 'Equity - Developed': 0.8, Gold: 0.1 },
+    { 'Equity - Developed': 0.5, 'Equity - Emerging': 0.2, Gold: 0.1 },
+    [{ walor: 'X', weight: 0.4 }]
+  );
+  assert.ok(items.some((item) => item.type === 'PRZEWAGA' && item.category === 'Equity - Developed'));
+  assert.ok(items.some((item) => item.type === 'NIEDOWAGA' && item.category === 'Equity - Emerging'));
+  assert.ok(items.some((item) => item.type === 'KONCENTRACJA' && item.category === 'X'));
+});

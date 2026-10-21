@@ -1,0 +1,8 @@
+Stan;Walor;Giełda;K/S;Liczba;Liczba zreal;Limit;Waluta;Limit aktywacji;Liczba ujawniana;Na sesję;Data ważności;Typ ważności;Waluta rozliczenia
+Zrealizowane;ASBIS;WWA;Kupno;10;10;20,00;PLN;;;15.03.2024 00:00:00;15.03.2024 00:00:00;DAY;PLN
+Unieważnione;CDPROJEKT;WWA;Kupno;5;0;100,00;PLN;;;15.03.2024 00:00:00;15.03.2024 00:00:00;DAY;PLN
+Zrealizowane;DINOPL;WWA;Kupno;1;1;340,00;PLN;;;06.12.2021 00:00:00;06.12.2021 00:00:00;DAY;PLN
+Zrealizowane;SGLN LN ETC;LON;Kupno;2;2;50,00;GBP;;;19.03.2026 00:00:00;19.03.2026 00:00:00;DAY;PLN
+Zrealizowane;EMXC LN ETF;LON;Sprzedaż;1;1;30,00;USD;;;18.05.2026 00:00:00;18.05.2026 00:00:00;DAY;PLN
+Zrealizowane;CDPROJEKT;WWA;Kupno;10;4;100,00;PLN;;;19.04.2022 00:00:00;19.04.2022 00:00:00;DAY;PLN
+Zamknięte;CSP1 LN ETF;LON;Kupno;1;0;300,00;GBP;;;19.04.2021 00:00:00;19.04.2021 00:00:00;DAY;PLN

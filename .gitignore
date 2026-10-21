@@ -20,6 +20,8 @@ dist/
 data/processed/
 data/output/
 site/data/*.json
+site/data/
+cache/
 *.parquet
 
 # Logs
