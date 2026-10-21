@@ -336,11 +336,22 @@ async function refreshDashboard() {
 
     if (snapshot.error) warnings.push(snapshot.error);
     if (snapshot.stale) warnings.push('Użyto zapisanych notowań (cache) - mogą być nieaktualne.');
-    const quoteErrors = (snapshot.errors || []).filter((item) => item.symbol !== 'FX');
+    const quoteErrors = (snapshot.errors || []).filter(
+      (item) => item.symbol !== 'FX' && item.scope !== 'history'
+    );
+    const historyErrors = (snapshot.errors || []).filter((item) => item.scope === 'history');
     const fxError = (snapshot.errors || []).find((item) => item.symbol === 'FX');
     if (quoteErrors.length > 0 && !snapshot.error) {
       const reasons = [...new Set(quoteErrors.map((item) => item.message))];
       warnings.push(`Powód braku notowań: ${reasons.slice(0, 2).join(' | ')}`);
+    }
+    if (historyErrors.length > 0 && metrics.summary.valuation_complete) {
+      const limited = historyErrors.some((item) => /429|Too Many/i.test(item.message));
+      warnings.push(
+        limited
+          ? 'Historia notowań niedostępna (limit Yahoo 429) - wykres pokazuje kapitał netto. Wycena bieżąca jest aktualna.'
+          : 'Historia notowań niedostępna - wykres pokazuje kapitał netto. Wycena bieżąca jest aktualna.'
+      );
     }
     if (fxError) warnings.push(`Brak aktualnych kursów walut: ${fxError.message}`);
     if (metrics.summary.missing_quotes.length > 0) {
@@ -391,10 +402,18 @@ async function refreshDashboard() {
           setChartStatus('');
         }
       } else {
-        setChartStatus('Historia wyceny niedostępna - pokazano kapitał netto zaangażowany.');
+        setChartStatus(
+          metrics.summary.valuation_complete
+            ? 'Brak historii notowań (Yahoo) - wykres pokazuje kapitał netto. Bieżąca wycena w podsumowaniu jest aktualna.'
+            : 'Historia wyceny niedostępna - pokazano kapitał netto zaangażowany.'
+        );
       }
     } else {
-      setChartStatus('Historia wyceny niedostępna - pokazano kapitał netto zaangażowany.');
+      setChartStatus(
+        metrics.summary.valuation_complete
+          ? 'Brak historii notowań (Yahoo) - wykres pokazuje kapitał netto. Bieżąca wycena w podsumowaniu jest aktualna.'
+          : 'Historia wyceny niedostępna - pokazano kapitał netto zaangażowany.'
+      );
     }
   } finally {
     refreshing = false;
@@ -656,9 +675,13 @@ function updateMarketTimestamp(market) {
     .map((quote) => quote && quote.marketTime)
     .filter(Boolean)
     .sort();
+  const quoteValues = Object.values(market.quotes || {}).filter(Boolean);
+  const delayed = quoteValues.some((quote) => quote.delayed);
+  const sources = [...new Set(quoteValues.map((quote) => quote.source).filter(Boolean))];
+  const sourceLabel = sources.length === 1 ? ` - ${sources[0]}` : '';
   const stamp = quoteTimes.length > 0 ? quoteTimes[quoteTimes.length - 1] : market.fetchedAt;
   const fetched = new Date(stamp);
-  element.textContent = ` | Notowania: ${fetched.toLocaleString('pl-PL')}${market.stale ? ' (cache)' : ''}`;
+  element.textContent = ` | Notowania: ${fetched.toLocaleString('pl-PL')}${market.stale ? ' (cache)' : ''}${delayed ? ' (opóźnione)' : ''}${sourceLabel}`;
 }
 
 function showBanner(type, messages) {

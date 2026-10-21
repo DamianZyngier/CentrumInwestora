@@ -58,7 +58,8 @@ function sendJson(res, status, body) {
   res.end(payload);
 }
 
-async function mapLimit(items, limit, fn) {  const out = new Array(items.length);
+async function mapLimit(items, limit, fn) {
+  const out = new Array(items.length);
   let cursor = 0;
   const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
     while (cursor < items.length) {
@@ -70,9 +71,14 @@ async function mapLimit(items, limit, fn) {  const out = new Array(items.length)
   return out;
 }
 
-async function fetchJson(url, timeoutMs = 20000) {
+async function fetchJson(url, timeoutMs = 20000, options = {}) {
   const response = await fetch(url, {
-    headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' },
+    ...options,
+    headers: {
+      'User-Agent': USER_AGENT,
+      Accept: 'application/json',
+      ...(options.headers || {}),
+    },
     signal: AbortSignal.timeout(timeoutMs),
   });
   if (!response.ok) {
@@ -331,6 +337,110 @@ async function getSplits(symbol, fromIso) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// TradingView - notowania bieżące (jedno zapytanie dla wielu symboli)
+// ---------------------------------------------------------------------------
+
+const TRADINGVIEW_URL = 'https://scanner.tradingview.com/global/scan';
+
+// Sufiks Yahoo -> giełda w TradingView. Dzięki temu nie trzeba pobierać
+// notowań osobno dla każdego symbolu (Yahoo bardzo agresywnie ogranicza 429).
+const TRADINGVIEW_EXCHANGES = [
+  ['.WA', 'GPW'],
+  ['.L', 'LSE'],
+  ['.DE', 'XETR'],
+  ['.F', 'FRA'],
+  ['.BE', 'BER'],
+  ['.MU', 'MUN'],
+  ['.DU', 'DUS'],
+  ['.HM', 'HAM'],
+  ['.HA', 'HAN'],
+  ['.SG', 'STU'],
+  ['.SW', 'SIX'],
+  ['.PA', 'EURONEXT'],
+  ['.AS', 'EURONEXT'],
+  ['.BR', 'EURONEXT'],
+  ['.LS', 'EURONEXT'],
+  ['.MI', 'MIL'],
+  ['.MC', 'BME'],
+  ['.ST', 'OMXSTO'],
+  ['.CO', 'OMXCOP'],
+  ['.HE', 'OMXHEX'],
+  ['.OL', 'OSL'],
+  ['.VI', 'VIE'],
+  ['.TO', 'TSX'],
+  ['.V', 'TSXV'],
+  ['.AX', 'ASX'],
+  ['.HK', 'HKEX'],
+  ['.T', 'TSE'],
+  ['.KS', 'KRX'],
+  ['.SI', 'SGX'],
+  ['.SA', 'BMFBOVESPA'],
+];
+
+function tradingViewSymbol(symbol) {
+  const upper = String(symbol || '').toUpperCase();
+  for (const [suffix, exchange] of TRADINGVIEW_EXCHANGES) {
+    if (upper.endsWith(suffix)) return `${exchange}:${upper.slice(0, -suffix.length)}`;
+  }
+  return null;
+}
+
+async function fetchTradingViewQuotes(symbols) {
+  const entries = [...new Set(symbols)]
+    .map((symbol) => ({ symbol, ticker: tradingViewSymbol(symbol) }))
+    .filter((entry) => entry.ticker);
+  if (entries.length === 0) return {};
+
+  const quotes = {};
+  for (let offset = 0; offset < entries.length; offset += 50) {
+    const batch = entries.slice(offset, offset + 50);
+    const data = await fetchJson(TRADINGVIEW_URL, 20000, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        symbols: {
+          tickers: batch.map((entry) => entry.ticker),
+          query: { types: [] },
+        },
+        columns: ['close', 'currency', 'description', 'exchange', 'update_mode'],
+      }),
+    });
+
+    const byTicker = new Map(batch.map((entry) => [entry.ticker, entry.symbol]));
+    for (const row of data.data || []) {
+      const symbol = byTicker.get(row.s);
+      if (!symbol) continue;
+      const [rawClose, rawCurrency, description, exchange, updateMode] = row.d || [];
+      const close = Number(rawClose);
+      if (!Number.isFinite(close) || close <= 0) continue;
+      const normalized = normalizeCurrency(rawCurrency || 'PLN');
+      quotes[symbol] = {
+        symbol,
+        price: close / normalized.divisor,
+        currency: normalized.code,
+        rawPrice: close,
+        rawCurrency: normalized.raw,
+        name: description || symbol,
+        exchange: exchange || '',
+        marketTime: new Date().toISOString(),
+        source: 'TradingView',
+        delayed: /delayed/i.test(String(updateMode || '')),
+      };
+    }
+  }
+  return quotes;
+}
+
+async function getTradingViewQuotes(symbols) {
+  const key = `tv:quotes:v1:${[...new Set(symbols)].sort().join(',')}`;
+  const result = await cached(key, 5 * 60 * 1000, async () => ({
+    quotes: await fetchTradingViewQuotes(symbols),
+    fetchedAt: new Date().toISOString(),
+  }));
+  return result.quotes || {};
+}
+
 /**
  * Jedno zapytanie z przeglądarki: notowania, historia, splity i kursy walut.
  * Dzięki temu frontend nie zalewa Yahoo dziesiątkami równoległych żądań.
@@ -340,28 +450,44 @@ async function getSnapshot(symbols, fromIso) {
   const splits = {};
   const quotes = {};
   const errors = [];
+  let tradingViewError = null;
 
+  // 1. Notowania bieżące: jedno zapytanie do TradingView dla wszystkich symboli.
+  //    Yahoo jest obecnie bardzo mocno ograniczane (HTTP 429), więc nie nadaje
+  //    się na główne źródło wyceny. TradingView zwraca cenę, walutę i nazwę.
+  try {
+    Object.assign(quotes, await getTradingViewQuotes(symbols));
+  } catch (error) {
+    tradingViewError = error;
+  }
+
+  // 2. Historia (wykres) i splity: Yahoo. Jeśli jest zablokowane, wycena
+  //    z TradingView nadal jest poprawna - brakuje tylko wykresu.
   for (const symbol of symbols) {
     try {
       const history = await getHistory(symbol, fromIso);
       histories[symbol] = history;
       splits[symbol] = history.splits;
-      const lastPrice = history.closes.length > 0 ? history.closes[history.closes.length - 1] : null;
-      if (lastPrice != null) {
-        quotes[symbol] = {
-          symbol,
-          price: lastPrice,
-          currency: history.currency,
-          name: history.name,
-          exchange: history.exchange,
-          marketTime: history.marketTime,
-        };
+      if (!quotes[symbol]) {
+        const lastPrice = history.closes.length > 0 ? history.closes[history.closes.length - 1] : null;
+        if (lastPrice != null) {
+          quotes[symbol] = {
+            symbol,
+            price: lastPrice,
+            currency: history.currency,
+            name: history.name,
+            exchange: history.exchange,
+            marketTime: history.marketTime,
+            source: 'Yahoo',
+          };
+        }
       }
     } catch (error) {
-      errors.push({ symbol, message: error.message });
+      errors.push({ symbol, message: error.message, scope: 'history' });
     }
   }
 
+  // 3. Kursy walut: NBP (działa niezależnie od Yahoo).
   let rates = { PLN: 1 };
   let fxDate = null;
   try {
@@ -369,7 +495,13 @@ async function getSnapshot(symbols, fromIso) {
     rates = { PLN: 1, ...fx.rates };
     fxDate = fx.date;
   } catch (error) {
-    errors.push({ symbol: 'FX', message: error.message });
+    errors.push({ symbol: 'FX', message: error.message, scope: 'quote' });
+  }
+
+  // Błąd TradingView pokazujemy tylko wtedy, gdy nie udało się zdobyć żadnej
+  // wyceny - inaczej byłby mylący (Yahoo mogło uzupełnić brakujące symbole).
+  if (Object.keys(quotes).length === 0 && tradingViewError) {
+    errors.push({ symbol: 'TradingView', message: tradingViewError.message, scope: 'quote' });
   }
 
   return {
@@ -456,13 +588,22 @@ async function handleApi(req, res, url) {
 
     const quotes = {};
     const errors = [];
-    await mapLimit(symbols, 5, async (symbol) => {
+    let tradingViewError = null;
+    try {
+      Object.assign(quotes, await getTradingViewQuotes(symbols));
+    } catch (error) {
+      tradingViewError = error;
+    }
+    await mapLimit(symbols.filter((symbol) => !quotes[symbol]), 5, async (symbol) => {
       try {
         quotes[symbol] = await getQuote(symbol);
       } catch (error) {
-        errors.push({ symbol, message: error.message });
+        errors.push({ symbol, message: error.message, scope: 'quote' });
       }
     });
+    if (Object.keys(quotes).length === 0 && tradingViewError) {
+      errors.push({ symbol: 'TradingView', message: tradingViewError.message, scope: 'quote' });
+    }
     return sendJson(res, 200, { quotes, errors, fetchedAt: new Date().toISOString() });
   }
 

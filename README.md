@@ -7,8 +7,20 @@ tylko do serwowania strony i pośredniczenia w pobieraniu notowań.
 ```
 CSV (Bossa) → parser w przeglądarce → IndexedDB → metryki → wykresy
                                       ↑
-                    lokalny serwer (proxy Yahoo/NBP + cache)
+                    lokalny serwer (TradingView/Yahoo/NBP + cache)
 ```
+
+## Źródła danych
+
+- **Notowania bieżące** – TradingView (jedno zapytanie dla wszystkich symboli,
+  cache 5 minut). To główne źródło wyceny portfela i zysku/straty.
+- **Historia notowań i splity** – Yahoo Finance. Historia służy tylko do wykresu;
+  jeśli Yahoo zwróci limit HTTP 429, bieżąca wycena i podsumowanie nadal są
+  poprawne, a wykres pokazuje kapitał netto.
+- **Kursy walut** – NBP (kurs bieżący i historyczny z dnia transakcji).
+
+Notowania z GPW i Xetry w TradingView mogą być opóźnione o ok. 15 minut; w stopce
+pojawia się wtedy oznaczenie „(opóźnione)”.
 
 ## Dlaczego lokalnie, a nie GitHub Pages?
 
@@ -17,7 +29,7 @@ Finance z przeglądarki wymaga obejścia CORS. Dotychczas używane
 `corsproxy.io` wymaga już klucza API, dlatego notowania przestały działać.
 Lokalny serwer rozwiązuje problem u źródła:
 
-- jedno miejsce na proxy i cache (mniej zapytań do Yahoo i mniejsze ryzyko limitów 429),
+- jedno miejsce na proxy i cache (mniej zapytań do źródeł danych i mniejsze ryzyko limitów 429),
 - brak wysyłania danych portfela na zewnątrz (serwer widzi tylko symbole),
 - brak zależności od GitHub Actions i limitów darmowych minut,
 - działa w sieci domowej, także gdy GitHub jest niedostępny.
@@ -192,7 +204,7 @@ pozycja pojawi się jako niewyceniona.
 ## Prywatność i kopie zapasowe
 
 - Transakcje są w `IndexedDB` przeglądarki. Serwer ich nie widzi.
-- Do Yahoo trafiają tylko symbole instrumentów, do NBP — pary walutowe.
+- Do TradingView/Yahoo trafiają tylko symbole instrumentów, do NBP — pary walutowe.
 - Wyczyszczenie danych przeglądarki usuwa portfel. Rób kopie:
   **Eksport kopii (JSON)** w sekcji „Zarządzanie danymi”. Import kopii odtworzy
   dane na innym urządzeniu/originie.
@@ -205,13 +217,36 @@ pozycja pojawi się jako niewyceniona.
 - Brak wyceny gotówki i obligacji; cele portfela zakładają 10% „Cash / Bonds”,
   więc rekomendacja niedowagi gotówki może się pojawiać.
 - Rentowność to proste ROI (zysk / suma zakupów), nie XIRR.
-- Notowania mogą być opóźnione; pierwsze pobranie historii bywa wolne z powodu
-  limitów Yahoo (serwer serializuje zapytania i ponawia je z backoffem).
+- Notowania mogą być opóźnione (GPW/Xetra ok. 15 min w TradingView); pierwsze
+  pobranie historii bywa wolne lub niemożliwe z powodu limitów Yahoo (HTTP 429).
+  Nie wpływa to na bieżącą wycenę z TradingView.
+
+## Rozwiązywanie problemów
+
+### „Błąd naruszenia bezpieczeństwa: ... nie może zostać wczytana lub powiązana z file:///”
+
+Strona została otwarta z pliku na dysku (`file:///...`), a nie z serwera.
+Przeglądarka blokuje wtedy zapytania do `http://192.168.8.100:8090`. Otwórz
+dokładnie adres `http://192.168.8.100:8090/` (nie plik `index.html`). Jeśli masz
+skrót na pulpicie, zmień jego adres na HTTP.
+
+### Zysk/Strata pokazuje tylko zysk zrealizowany (np. 1 176,20 zł)
+
+To objaw braku notowań bieżących: podsumowanie liczy wtedy wyłącznie sprzedaże.
+Sprawdź, czy strona jest otwarta przez HTTP, oraz czy w stopce jest
+„Notowania: ... - TradingView”. Jeśli TradingView jest niedostępny, serwer
+użyje ostatnich notowań z cache przeglądarki.
+
+### Historia wykresu niedostępna, ale wycena jest poprawna
+
+Yahoo zwróciło HTTP 429 (limit). Bieżące notowania pochodzą z TradingView, więc
+podsumowanie i tabela pozycji są aktualne; brakuje tylko historii do wykresu.
+Spróbuj ponownie później — cache historii jest odświeżany po 12 godzinach.
 
 ## Struktura projektu
 
 ```
-server/server.js        statyczny serwer + proxy Yahoo/NBP + cache
+server/server.js        statyczny serwer + proxy TradingView/Yahoo/NBP + cache
 site/                   frontend (HTML/CSS/JS, bez builda)
 site/js/processor.js    parser CSV, FX, splity, metryki, szeregi czasowe
 site/js/api.js          klient lokalnego API
