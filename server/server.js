@@ -26,6 +26,10 @@ const CACHE_DIR = process.env.CACHE_DIR
   ? path.resolve(process.env.CACHE_DIR)
   : path.join(ROOT_DIR, 'cache');
 
+// Gdy Yahoo blokuje IP (HTTP 429), historię można pobrać przez publiczny
+// reader r.jina.ai. Można to wyłączyć: JINA_FALLBACK=0.
+const JINA_FALLBACK = process.env.JINA_FALLBACK !== '0';
+
 const USER_AGENT =
   'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36';
 
@@ -85,6 +89,20 @@ async function fetchJson(url, timeoutMs = 20000, options = {}) {
     throw new Error(`HTTP ${response.status} dla ${url}`);
   }
   return response.json();
+}
+
+async function fetchText(url, timeoutMs = 45000) {
+  const response = await fetch(url, {
+    headers: {
+      'User-Agent': USER_AGENT,
+      Accept: 'text/plain, application/json;q=0.9, */*;q=0.8',
+    },
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status} dla ${url}`);
+  }
+  return response.text();
 }
 
 function cacheFile(key) {
@@ -227,10 +245,10 @@ function scheduleYahoo(task) {
   return result;
 }
 
-async function fetchChart(symbol, query, timeoutMs = 20000) {
+async function fetchChart(symbol, query, timeoutMs = 20000, attempts = 3) {
   return scheduleYahoo(async () => {
     let lastError = null;
-    for (let attempt = 0; attempt < 3; attempt += 1) {
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
       try {
         const host = attempt % 2 === 0 ? 'query1' : 'query2';
         const url = `https://${host}.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?${query}`;
@@ -244,10 +262,12 @@ async function fetchChart(symbol, query, timeoutMs = 20000) {
         const rateLimited = /429|Too Many/i.test(error.message || '');
         if (rateLimited) {
           // Nie katujmy Yahoo kolejnymi symbolami, jeśli limit jest globalny.
-          yahooBlockedUntil = Date.now() + 60 * 1000;
+          // 5 minut wystarczy, żeby nie powtarzać wolnych prób przy każdym
+          // odświeżeniu; historia i tak jest pobierana przez fallback Jina.
+          yahooBlockedUntil = Date.now() + 5 * 60 * 1000;
         }
         const retryable = /429|Too Many|timeout|aborted|fetch failed/i.test(error.message || '');
-        if (!retryable || attempt === 2) throw error;
+        if (!retryable || attempt === attempts - 1) throw error;
         await sleep(1500 * (attempt + 1));
       }
     }
@@ -289,14 +309,15 @@ async function getQuote(symbol) {
   });
 }
 
-async function getHistory(symbol, fromIso) {
+async function getHistory(symbol, fromIso, attempts = 3) {
   const from = Math.floor(new Date(`${fromIso}T00:00:00Z`).getTime() / 1000) - 10 * 86400;
   const to = Math.floor(Date.now() / 1000) + 86400;
   return cached(`history:v3:${symbol}:${fromIso}`, 12 * 60 * 60 * 1000, async () => {
     const result = await fetchChart(
       symbol,
       `period1=${from}&period2=${to}&interval=1d&events=split`,
-      30000
+      30000,
+      attempts
     );
     const meta = result.meta || {};
     const normalized = normalizeCurrency(meta.currency || 'PLN');
@@ -441,6 +462,115 @@ async function getTradingViewQuotes(symbols) {
   return result.quotes || {};
 }
 
+// ---------------------------------------------------------------------------
+// Fallback historii: publiczny reader r.jina.ai -> Yahoo spark
+// ---------------------------------------------------------------------------
+// Yahoo blokuje część adresów IP (HTTP 429) także dla historii. r.jina.ai
+// pobiera ten sam publiczny JSON z innego adresu IP, dzięki czemu wykres
+// portfela działa również wtedy, gdy bezpośrednie zapytania są limitowane.
+// Wysyłane są wyłącznie symbole instrumentów (bez danych transakcji).
+
+const JINA_READER = 'https://r.jina.ai/';
+const JINA_BATCH_SIZE = 20; // limit Yahoo spark
+
+function parseJinaJson(text) {
+  const marker = 'Markdown Content:';
+  const index = text.indexOf(marker);
+  const body = index >= 0 ? text.slice(index + marker.length) : text;
+  const start = body.indexOf('{"spark"');
+  if (start < 0) throw new Error('Jina: brak danych JSON');
+  return JSON.parse(body.slice(start));
+}
+
+function jinaRange(fromIso) {
+  const start = Date.parse(`${fromIso}T00:00:00Z`);
+  const years = Number.isFinite(start)
+    ? (Date.now() - start) / (365.25 * 24 * 60 * 60 * 1000)
+    : 10;
+  return years > 9.5
+    ? { range: 'max', interval: '1wk' }
+    : { range: '10y', interval: '1d' };
+}
+
+async function fetchJinaSpark(batch, fromIso) {
+  const { range, interval } = jinaRange(fromIso);
+  const target =
+    `https://query1.finance.yahoo.com/v7/finance/spark?symbols=${batch.join(',')}` +
+    `%26range=${range}%26interval=${interval}`;
+  const text = await fetchText(`${JINA_READER}${target}`, 90000);
+  const data = parseJinaJson(text);
+  const spark = data && data.spark;
+  if (!spark) throw new Error('Jina: nieprawidłowa odpowiedź Yahoo');
+  if (spark.error) {
+    throw new Error(`Yahoo: ${spark.error.description || spark.error.code || 'błąd'}`);
+  }
+
+  const histories = {};
+  for (const item of spark.result || []) {
+    const response = item.response && item.response[0];
+    if (!response) continue;
+    const meta = response.meta || {};
+    const normalized = normalizeCurrency(meta.currency || 'PLN');
+    const timestamps = response.timestamp || [];
+    const rawCloses =
+      (response.indicators &&
+        response.indicators.quote &&
+        response.indicators.quote[0] &&
+        response.indicators.quote[0].close) ||
+      [];
+    const dates = [];
+    const closes = [];
+    for (let i = 0; i < timestamps.length; i += 1) {
+      const close = Number(rawCloses[i]);
+      if (rawCloses[i] == null || !Number.isFinite(close)) continue;
+      dates.push(isoDate(timestamps[i]));
+      closes.push(close / normalized.divisor);
+    }
+    if (dates.length === 0) continue;
+    histories[item.symbol] = {
+      symbol: item.symbol,
+      currency: normalized.code,
+      rawCurrency: meta.currency || 'PLN',
+      name: meta.longName || meta.shortName || item.symbol,
+      exchange: meta.fullExchangeName || meta.exchangeName || '',
+      marketTime: meta.regularMarketTime
+        ? new Date(meta.regularMarketTime * 1000).toISOString()
+        : null,
+      dates,
+      closes,
+      splits: [],
+      source: 'Jina/Yahoo',
+      interval,
+    };
+  }
+  return histories;
+}
+
+async function getJinaHistories(symbols, fromIso) {
+  const histories = {};
+  const errors = [];
+  const { range, interval } = jinaRange(fromIso);
+  const batches = [];
+  for (let offset = 0; offset < symbols.length; offset += JINA_BATCH_SIZE) {
+    batches.push(symbols.slice(offset, offset + JINA_BATCH_SIZE));
+  }
+
+  for (const batch of batches) {
+    const key = `jina:spark:v2:${range}:${interval}:${[...batch].sort().join(',')}`;
+    try {
+      const value = await cached(key, 6 * 60 * 60 * 1000, async () => {
+        const result = await fetchJinaSpark(batch, fromIso);
+        if (Object.keys(result).length === 0) throw new Error('Jina: brak historii');
+        return result;
+      });
+      Object.assign(histories, value);
+    } catch (error) {
+      errors.push({ symbol: batch.join(','), message: error.message, scope: 'history' });
+    }
+  }
+  return { histories, errors };
+}
+
 /**
  * Jedno zapytanie z przeglądarki: notowania, historia, splity i kursy walut.
  * Dzięki temu frontend nie zalewa Yahoo dziesiątkami równoległych żądań.
@@ -461,13 +591,14 @@ async function getSnapshot(symbols, fromIso) {
     tradingViewError = error;
   }
 
-  // 2. Historia (wykres) i splity: Yahoo. Jeśli jest zablokowane, wycena
-  //    z TradingView nadal jest poprawna - brakuje tylko wykresu.
+  // 2. Historia (wykres) i splity: najpierw bezpośrednio Yahoo. Jeśli jest
+  //    zablokowane, wycena z TradingView nadal jest poprawna, a historię
+  //    uzupełniamy przez fallback Jina (poniżej).
   for (const symbol of symbols) {
     try {
-      const history = await getHistory(symbol, fromIso);
+      const history = await getHistory(symbol, fromIso, 1);
       histories[symbol] = history;
-      splits[symbol] = history.splits;
+      splits[symbol] = Array.isArray(history.splits) ? history.splits : [];
       if (!quotes[symbol]) {
         const lastPrice = history.closes.length > 0 ? history.closes[history.closes.length - 1] : null;
         if (lastPrice != null) {
@@ -484,6 +615,48 @@ async function getSnapshot(symbols, fromIso) {
       }
     } catch (error) {
       errors.push({ symbol, message: error.message, scope: 'history' });
+    }
+  }
+
+  // 2b. Fallback historii dla symboli, których Yahoo nie zwróciło (np. HTTP 429).
+  //     Jedno zapytanie na 20 symboli, dane dzienne z 10 lat (lub tygodniowe
+  //     dla starszych portfeli). Cache 6 h.
+  if (JINA_FALLBACK) {
+    const missing = symbols.filter((symbol) => !histories[symbol]);
+    if (missing.length > 0) {
+      try {
+        const fallback = await getJinaHistories(missing, fromIso);
+        Object.assign(histories, fallback.histories);
+        for (const [symbol, history] of Object.entries(fallback.histories)) {
+          splits[symbol] = Array.isArray(history.splits) ? history.splits : [];
+          if (!quotes[symbol] && history.closes.length > 0) {
+            quotes[symbol] = {
+              symbol,
+              price: history.closes[history.closes.length - 1],
+              currency: history.currency,
+              name: history.name,
+              exchange: history.exchange,
+              marketTime: history.marketTime,
+              source: 'Jina/Yahoo',
+              delayed: true,
+            };
+          }
+        }
+        // Usuń błędy historii dla symboli, które udało się uzupełnić.
+        for (let i = errors.length - 1; i >= 0; i -= 1) {
+          const entry = errors[i];
+          if (entry.scope === 'history' && histories[entry.symbol]) errors.splice(i, 1);
+        }
+        const unresolved = missing.filter((symbol) => !histories[symbol]);
+        if (unresolved.length > 0) {
+          const message = fallback.errors[0]
+            ? fallback.errors[0].message
+            : 'Brak historii notowań';
+          errors.push({ symbol: unresolved.join(','), message, scope: 'history' });
+        }
+      } catch (error) {
+        errors.push({ symbol: 'Jina', message: error.message, scope: 'history' });
+      }
     }
   }
 
@@ -534,6 +707,80 @@ function shiftDate(iso, days) {
   const date = new Date(`${iso}T00:00:00Z`);
   date.setUTCDate(date.getUTCDate() + days);
   return date.toISOString().slice(0, 10);
+}
+
+async function fetchNbpRates(currency, startIso, endIso) {
+  const code = currency.toLowerCase();
+  let lastError = null;
+  for (const table of ['a', 'b']) {
+    try {
+      const data = await fetchJson(
+        `https://api.nbp.pl/api/exchangerates/rates/${table}/${code}/${startIso}/${endIso}/?format=json`,
+        25000
+      );
+      return (data && Array.isArray(data.rates) ? data.rates : [])
+        .map((rate) => ({ date: rate.effectiveDate, rate: Number(rate.mid) }))
+        .filter((rate) => rate.date && Number.isFinite(rate.rate));
+    } catch (error) {
+      lastError = error;
+      // NBP zwraca 404, gdy w zakresie nie ma danych. Dla walut spoza tabeli A
+      // próbujemy tabeli B; brak danych w obu oznacza po prostu brak kursu.
+      if (/HTTP 404/.test(error.message || '')) continue;
+      throw error;
+    }
+  }
+  if (/HTTP 404/.test(lastError && lastError.message)) return [];
+  throw lastError || new Error(`Brak kursów NBP ${currency}`);
+}
+
+async function getNbpRatesRange(currency, startIso, endIso) {
+  const today = new Date().toISOString().slice(0, 10);
+  const ttl = endIso >= today ? 60 * 60 * 1000 : 30 * 24 * 60 * 60 * 1000;
+  return cached(
+    `nbp:range:v1:${currency}:${startIso}:${endIso}`,
+    ttl,
+    () => fetchNbpRates(currency, startIso, endIso)
+  );
+}
+
+async function getNbpHistory(currency, fromIso) {
+  if (currency === 'PLN') {
+    return { currency: 'PLN', dates: [], rates: [], fixed: 1, source: 'stały' };
+  }
+
+  // Cofamy się o 10 dni, żeby pierwsze dni portfela (weekend/święto) miały
+  // ostatni znany kurs NBP, zamiast sztucznie używać kursu bieżącego.
+  const startIso = shiftDate(fromIso, -10);
+  return cached(`nbp:history:v1:${currency}:${startIso}`, 60 * 60 * 1000, async () => {
+    const byDate = new Map();
+    const today = new Date().toISOString().slice(0, 10);
+    let cursor = startIso;
+    let lastError = null;
+
+    while (cursor <= today) {
+      const end = shiftDate(cursor, 359);
+      const chunkEnd = end < today ? end : today;
+      try {
+        const rows = await getNbpRatesRange(currency, cursor, chunkEnd);
+        for (const row of rows) byDate.set(row.date, row.rate);
+      } catch (error) {
+        lastError = error;
+      }
+      cursor = shiftDate(chunkEnd, 1);
+    }
+
+    const sorted = [...byDate.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+    if (sorted.length === 0) {
+      throw lastError || new Error(`Brak historii NBP ${currency}`);
+    }
+    return {
+      currency,
+      dates: sorted.map(([date]) => date),
+      rates: sorted.map(([, rate]) => rate),
+      source: 'NBP',
+      partial: Boolean(lastError),
+    };
+  });
 }
 
 async function getFxRate(currency, dateIso) {
@@ -682,16 +929,7 @@ async function handleApi(req, res, url) {
   if (route === '/api/fx/history') {
     const currency = assertCurrency(url.searchParams.get('currency'));
     const from = assertIsoDate(url.searchParams.get('from') || '2000-01-01');
-    if (currency === 'PLN') {
-      return sendJson(res, 200, { currency: 'PLN', dates: [], rates: [], fixed: 1 });
-    }
-    const history = await getHistory(`${currency}PLN=X`, from);
-    return sendJson(res, 200, {
-      currency,
-      dates: history.dates,
-      rates: history.closes,
-      splits: history.splits,
-    });
+    return sendJson(res, 200, await getNbpHistory(currency, from));
   }
 
   throw new Error(`Nieznany endpoint: ${route}`);

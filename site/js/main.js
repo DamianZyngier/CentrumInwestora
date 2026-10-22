@@ -404,14 +404,14 @@ async function refreshDashboard() {
       } else {
         setChartStatus(
           metrics.summary.valuation_complete
-            ? 'Brak historii notowań (Yahoo) - wykres pokazuje kapitał netto. Bieżąca wycena w podsumowaniu jest aktualna.'
+            ? 'Brak historii notowań - wykres pokazuje kapitał netto. Bieżąca wycena w podsumowaniu jest aktualna.'
             : 'Historia wyceny niedostępna - pokazano kapitał netto zaangażowany.'
         );
       }
     } else {
       setChartStatus(
         metrics.summary.valuation_complete
-          ? 'Brak historii notowań (Yahoo) - wykres pokazuje kapitał netto. Bieżąca wycena w podsumowaniu jest aktualna.'
+          ? 'Brak historii notowań - wykres pokazuje kapitał netto. Bieżąca wycena w podsumowaniu jest aktualna.'
           : 'Historia wyceny niedostępna - pokazano kapitał netto zaangażowany.'
       );
     }

@@ -14,10 +14,12 @@ CSV (Bossa) → parser w przeglądarce → IndexedDB → metryki → wykresy
 
 - **Notowania bieżące** – TradingView (jedno zapytanie dla wszystkich symboli,
   cache 5 minut). To główne źródło wyceny portfela i zysku/straty.
-- **Historia notowań i splity** – Yahoo Finance. Historia służy tylko do wykresu;
-  jeśli Yahoo zwróci limit HTTP 429, bieżąca wycena i podsumowanie nadal są
-  poprawne, a wykres pokazuje kapitał netto.
-- **Kursy walut** – NBP (kurs bieżący i historyczny z dnia transakcji).
+- **Historia notowań i splity** – Yahoo Finance. Gdy Yahoo zwróci limit HTTP 429,
+  historia jest automatycznie pobierana przez publiczny reader `r.jina.ai`
+  (to samo zapytanie do Yahoo, tylko z innego adresu IP). Wykres portfela działa
+  również wtedy; dane są dzienne z 10 lat, a cache trzymany jest 6 godzin.
+- **Kursy walut** – NBP (kurs bieżący i pełna historia dzienna do wykresu;
+  weekendy i święta są uzupełniane ostatnim kursem).
 
 Notowania z GPW i Xetry w TradingView mogą być opóźnione o ok. 15 minut; w stopce
 pojawia się wtedy oznaczenie „(opóźnione)”.
@@ -205,6 +207,10 @@ pozycja pojawi się jako niewyceniona.
 
 - Transakcje są w `IndexedDB` przeglądarki. Serwer ich nie widzi.
 - Do TradingView/Yahoo trafiają tylko symbole instrumentów, do NBP — pary walutowe.
+- Historia walut pochodzi wyłącznie z NBP, a nie z Yahoo, więc limit 429 jej nie dotyczy.
+- Gdy bezpośrednie Yahoo zwraca 429, historia notowań jest pobierana przez
+  `r.jina.ai`; przesyłane są wyłącznie symbole (bez transakcji i kwot).
+  Fallback można wyłączyć zmienną środowiskową `JINA_FALLBACK=0`.
 - Wyczyszczenie danych przeglądarki usuwa portfel. Rób kopie:
   **Eksport kopii (JSON)** w sekcji „Zarządzanie danymi”. Import kopii odtworzy
   dane na innym urządzeniu/originie.
@@ -218,8 +224,9 @@ pozycja pojawi się jako niewyceniona.
   więc rekomendacja niedowagi gotówki może się pojawiać.
 - Rentowność to proste ROI (zysk / suma zakupów), nie XIRR.
 - Notowania mogą być opóźnione (GPW/Xetra ok. 15 min w TradingView); pierwsze
-  pobranie historii bywa wolne lub niemożliwe z powodu limitów Yahoo (HTTP 429).
-  Nie wpływa to na bieżącą wycenę z TradingView.
+  pobranie historii może być wolniejsze z powodu limitu Yahoo (HTTP 429).
+  Serwer od razu przełącza się wtedy na fallback `r.jina.ai`, więc wykres
+  portfela nadal się wypełnia. Bieżąca wycena zawsze pochodzi z TradingView.
 
 ## Rozwiązywanie problemów
 
@@ -239,14 +246,16 @@ użyje ostatnich notowań z cache przeglądarki.
 
 ### Historia wykresu niedostępna, ale wycena jest poprawna
 
-Yahoo zwróciło HTTP 429 (limit). Bieżące notowania pochodzą z TradingView, więc
-podsumowanie i tabela pozycji są aktualne; brakuje tylko historii do wykresu.
-Spróbuj ponownie później — cache historii jest odświeżany po 12 godzinach.
+Serwer najpierw próbuje Yahoo, a przy HTTP 429 automatycznie pobiera historię
+przez `r.jina.ai`. Jeśli oba źródła zawiodą, bieżące notowania z TradingView
+nadal poprawnie wyceniają portfel, a wykres pokazuje kapitał netto zaangażowany.
+Sprawdź połączenie z internetem i spróbuj ponownie później — cache historii
+Jina odświeża się po 6 godzinach, a bezpośrednie Yahoo po 12 godzinach.
 
 ## Struktura projektu
 
 ```
-server/server.js        statyczny serwer + proxy TradingView/Yahoo/NBP + cache
+server/server.js        statyczny serwer + proxy TradingView/Yahoo/NBP/Jina + cache
 site/                   frontend (HTML/CSS/JS, bez builda)
 site/js/processor.js    parser CSV, FX, splity, metryki, szeregi czasowe
 site/js/api.js          klient lokalnego API
