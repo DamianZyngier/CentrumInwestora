@@ -2,8 +2,10 @@
 
 /**
  * Trwałe przechowywanie transakcji w IndexedDB (dane nie opuszczają przeglądarki).
- * Deduplikacja opiera się na stabilnym kluczu transakcji (Processor.keyFromTransaction),
- * dzięki czemu ponowne wgranie tego samego pliku nie dubluje danych.
+ * Deduplikacja opiera się na stabilnym kluczu transakcji (Processor.identityKey),
+ * dzięki czemu ponowne wgranie tego samego pliku nie dubluje danych, ale dwie
+ * osobne transakcje o tych samych podstawowych polach i różnej wartości/prowizji
+ * są traktowane jako różne operacje.
  */
 
 const DB_NAME = 'InvestorCenterDB';
@@ -53,8 +55,9 @@ const DB = {
     const keys = new Set();
     for (const transaction of existing) {
       const key =
-        transaction.key ||
-        (typeof Processor !== 'undefined' ? Processor.keyFromTransaction(transaction) : null);
+        typeof Processor !== 'undefined'
+          ? Processor.identityKey(transaction)
+          : transaction.key || null;
       if (key) keys.add(key);
     }
 
@@ -74,8 +77,9 @@ const DB = {
 
       for (const transaction of transactions) {
         const key =
-          transaction.key ||
-          (typeof Processor !== 'undefined' ? Processor.keyFromTransaction(transaction) : null);
+          typeof Processor !== 'undefined'
+            ? Processor.identityKey(transaction)
+            : transaction.key || null;
         if (key && keys.has(key)) {
           skipped += 1;
           continue;

@@ -240,11 +240,12 @@ const Processor = {
         orderType: String(row['Typ ważności'] || '').trim(),
       });
 
-      if (seen.has(transaction.key)) {
+      const identity = this.identityKey(transaction);
+      if (seen.has(identity)) {
         skipped.push(this.buildSkippedRow(row, line, 'duplikat w pliku', walor));
         return;
       }
-      seen.add(transaction.key);
+      seen.add(identity);
       transactions.push(transaction);
     });
 
@@ -322,11 +323,12 @@ const Processor = {
         orderType: '',
       });
 
-      if (seen.has(transaction.key)) {
+      const identity = this.identityKey(transaction);
+      if (seen.has(identity)) {
         skipped.push(this.buildSkippedRow(row, line, 'duplikat w pliku', walor));
         return;
       }
-      seen.add(transaction.key);
+      seen.add(identity);
       transactions.push(transaction);
     });
 
@@ -398,6 +400,25 @@ const Processor = {
 
   keyFromTransaction(transaction) {
     return transaction.key || this.buildKey(transaction);
+  },
+
+  /**
+   * Klucz deduplikacji. Oprócz podstawowych pól uwzględnia kwotę i prowizję
+   * z eksportu transakcji. Dzięki temu dwa osobne zakupy tego samego waloru,
+   * tego samego dnia, po tej samej cenie i tej samej liczbie jednostek, ale
+   * z różną wartością/prowizją, nie są traktowane jako duplikat.
+   */
+  identityKey(transaction) {
+    const base = this.buildKey(transaction);
+    const looksLikeTransaction =
+      transaction.source_format === 'transactions' ||
+      (!transaction.source_format && transaction.waluta_rozliczenia != null);
+    if (!looksLikeTransaction) return base;
+
+    const value = Number(transaction.wartosc_oryginalna) || 0;
+    const fee = Number(transaction.prowizja_oryginalna) || 0;
+    const rawData = String(transaction.data || '').trim();
+    return `${base}|${rawData}|${value.toFixed(6)}|${fee.toFixed(6)}`;
   },
 
   normalizeSide(raw) {

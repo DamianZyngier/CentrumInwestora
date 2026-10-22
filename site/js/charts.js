@@ -67,6 +67,14 @@ function updateTimeseriesChart(data) {
   }
 
   const hasValuation = Array.isArray(data.portfolio_value_pln);
+  const dates = Array.isArray(data.dates) ? data.dates : [];
+  const spanDays =
+    dates.length > 1
+      ? (Date.parse(dates[dates.length - 1]) - Date.parse(dates[0])) / 86400000
+      : 0;
+  // Dla długich zakresów etykiety miesięczne (MM.YYYY). Przy 1m/3m dni
+  // byłyby bardziej użyteczne, więc wtedy zostaje krótki format MM-DD.
+  const useMonthLabels = spanDays > 120;
   const datasets = [];
 
   if (hasValuation) {
@@ -114,7 +122,23 @@ function updateTimeseriesChart(data) {
       },
       scales: {
         x: {
-          ticks: { color: '#94a3b8', maxRotation: 0, autoSkip: true, maxTicksLimit: 12 },
+          ticks: {
+            color: '#94a3b8',
+            minRotation: 30,
+            maxRotation: 45,
+            autoSkip: true,
+            maxTicksLimit: 12,
+            callback(value) {
+              const raw = this.getLabelForValue ? this.getLabelForValue(value) : value;
+              const label = String(raw == null ? '' : raw);
+              if (!/^\d{4}-\d{2}-\d{2}$/.test(label)) return label;
+              if (useMonthLabels) {
+                const [year, month] = label.split('-');
+                return `${month}.${year}`;
+              }
+              return label.slice(5);
+            },
+          },
           grid: { color: 'rgba(51, 65, 85, 0.6)' },
         },
         y: {

@@ -71,6 +71,22 @@ test('parser: transakcje walutowe rozliczane w PLN nie są przeliczane drugi raz
   assert.ok(Math.abs(transaction.cash_flow_pln + 7049.94) < 0.0001);
 });
 
+test('parser: dwie osobne transakcje o tych samych podstawowych polach nie są duplikatem', () => {
+  const csv = [
+    'Walor;Giełda;K/S;Liczba;Kurs;Waluta;Wartość;Prowizja;Czas transakcji;Waluta rozliczenia;Kurs Przewalutowania',
+    'SJPA LN ETF;LON;Kupno;2;37,52000000;GBP;400,01;19,00;22.07.2021 09:00:00;PLN;5,3307',
+    'SJPA LN ETF;LON;Kupno;2;37,52000000;GBP;400,02;0,00;22.07.2021 09:00:00;PLN;5,3307',
+  ].join('\n');
+
+  const result = Processor.parseText(csv, 'DZ_2021.csv');
+  assert.equal(result.transactions.length, 2);
+  assert.equal(result.skipped.length, 0);
+  assert.notEqual(
+    Processor.identityKey(result.transactions[0]),
+    Processor.identityKey(result.transactions[1])
+  );
+});
+
 test('migracja: naprawia stare podwójne przeliczenie FX w IndexedDB', () => {
   const legacy = {
     source_format: 'transactions',

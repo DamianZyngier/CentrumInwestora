@@ -189,7 +189,9 @@ są automatycznie naprawiane przy pierwszym wczytaniu.
 ### Deduplikacja i splity
 
 - Każda transakcja ma stabilny klucz; ponowne wgranie tego samego pliku nie
-  dubluje danych.
+  dubluje danych. W eksporcie transakcji klucz obejmuje też wartość i prowizję,
+  więc dwie osobne operacje o tym samym dniu, cenie i liczbie jednostek nie są
+  błędnie uznawane za duplikat.
 - Splity są pobierane z Yahoo Finance, a dodatkowo zabezpieczone ręcznie w
   `data/reference/splits.yaml` (BLOOBER 1:10 z 2021-03-18, DINOPL 1:10 z
   2025-07-31). Bez tego liczba jednostek byłaby błędna.
