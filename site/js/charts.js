@@ -58,6 +58,27 @@ function updateAssetStructChart(assetStruct) {
   });
 }
 
+function isAxisBoundary(label, unit) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(label)) return false;
+  const [, month, day] = label.split('-');
+  if (day !== '01') return false;
+  if (unit === 'year') return month === '01';
+  if (unit === 'quarter') return ['01', '04', '07', '10'].includes(month);
+  return true;
+}
+
+function formatAxisPeriod(label, unit) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(label)) return label;
+  const [year, month] = label.split('-');
+  if (unit === 'year') return year;
+  if (unit === 'quarter') {
+    const quarter = Math.floor((Number(month) - 1) / 3) + 1;
+    return `${['I', 'II', 'III', 'IV'][quarter - 1]} kw. ${year}`;
+  }
+  const months = ['sty', 'lut', 'mar', 'kwi', 'maj', 'cze', 'lip', 'sie', 'wrz', 'paź', 'lis', 'gru'];
+  return `${months[Number(month) - 1]} ${year}`;
+}
+
 function updateTimeseriesChart(data) {
   const canvas = document.getElementById('timeseriesChart');
   if (!canvas || !data) return;
@@ -72,9 +93,8 @@ function updateTimeseriesChart(data) {
     dates.length > 1
       ? (Date.parse(dates[dates.length - 1]) - Date.parse(dates[0])) / 86400000
       : 0;
-  // Dla długich zakresów etykiety miesięczne (MM.YYYY). Przy 1m/3m dni
-  // byłyby bardziej użyteczne, więc wtedy zostaje krótki format MM-DD.
-  const useMonthLabels = spanDays > 120;
+  // Krótkie zakresy: miesiące, średnie: kwartały, najdłuższe (5 lat/ALL): lata.
+  const axisUnit = spanDays <= 200 ? 'month' : spanDays <= 1095 ? 'quarter' : 'year';
   const datasets = [];
 
   if (hasValuation) {
@@ -122,21 +142,42 @@ function updateTimeseriesChart(data) {
       },
       scales: {
         x: {
+          afterBuildTicks(axis) {
+            const labels = axis.chart.data.labels || [];
+            const ticks = [];
+            const seen = new Set();
+            labels.forEach((label, index) => {
+              if (!isAxisBoundary(label, axisUnit)) return;
+              const period = formatAxisPeriod(label, axisUnit);
+              if (seen.has(period)) return;
+              seen.add(period);
+              ticks.push({ value: index, label });
+            });
+            // Przy krótkim zakresie pierwszy miesiąc/kwartał/rok może nie mieć
+            // swojego początku w widoku. Dodaj go na pierwszym punkcie, ale
+            // tylko gdy nie zleje się z pierwszą prawdziwą granicą okresu.
+            if (labels.length > 0) {
+              const firstLabel = labels[0];
+              const firstPeriod = formatAxisPeriod(firstLabel, axisUnit);
+              const firstBoundary = ticks[0];
+              const samePeriod =
+                firstBoundary && formatAxisPeriod(firstBoundary.label, axisUnit) === firstPeriod;
+              const boundaryIndex = firstBoundary ? firstBoundary.value : labels.length - 1;
+              const share = labels.length > 1 ? boundaryIndex / (labels.length - 1) : 1;
+              if (!samePeriod && share >= 0.12) {
+                ticks.unshift({ value: 0, label: firstLabel });
+              }
+            }
+            axis.ticks = ticks;
+          },
           ticks: {
             color: '#94a3b8',
             minRotation: 30,
             maxRotation: 45,
-            autoSkip: true,
-            maxTicksLimit: 12,
+            autoSkip: false,
             callback(value) {
               const raw = this.getLabelForValue ? this.getLabelForValue(value) : value;
-              const label = String(raw == null ? '' : raw);
-              if (!/^\d{4}-\d{2}-\d{2}$/.test(label)) return label;
-              if (useMonthLabels) {
-                const [year, month] = label.split('-');
-                return `${month}.${year}`;
-              }
-              return label.slice(5);
+              return formatAxisPeriod(String(raw == null ? '' : raw), axisUnit);
             },
           },
           grid: { color: 'rgba(51, 65, 85, 0.6)' },
