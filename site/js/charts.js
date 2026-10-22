@@ -118,6 +118,7 @@ function updateTimeseriesChart(data) {
           grid: { color: 'rgba(51, 65, 85, 0.6)' },
         },
         y: {
+          beginAtZero: true,
           ticks: {
             color: '#94a3b8',
             callback: (value) =>

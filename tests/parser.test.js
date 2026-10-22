@@ -288,12 +288,19 @@ test('szereg czasowy: wartość portfela z historii i splitów', () => {
     },
   };
   const series = Processor.buildPortfolioSeries(transactions, histories, {}, { fallbackRates: { PLN: 1 } });
+  const investedSeries = Processor.buildInvestedSeries(transactions);
 
   assert.equal(series.mode, 'valuation');
-  assert.equal(series.dates[0], '2021-12-06');
-  assert.equal(series.portfolio_value_pln[0], 340);
-  assert.equal(series.portfolio_value_pln[1], 350);
-  assert.equal(series.invested_pln[0], 340);
+  // Dzień przed pierwszą transakcją: punkt zerowy i widoczny odcinek do zakupu.
+  assert.equal(series.dates[0], '2021-12-05');
+  assert.equal(series.portfolio_value_pln[0], 0);
+  assert.equal(series.invested_pln[0], 0);
+  assert.equal(investedSeries.dates[0], '2021-12-05');
+  assert.equal(investedSeries.invested_pln[0], 0);
+  assert.equal(investedSeries.invested_pln[1], 340);
+  assert.equal(series.portfolio_value_pln[series.dates.indexOf('2021-12-06')], 340);
+  assert.equal(series.portfolio_value_pln[series.dates.indexOf('2021-12-07')], 350);
+  assert.equal(series.invested_pln[series.dates.indexOf('2021-12-06')], 340);
   // Ostatni punkt = ostatnia znana cena (forward fill).
   assert.equal(series.portfolio_value_pln.at(-1), 360);
   assert.equal(series.incomplete, false);

@@ -847,10 +847,13 @@ const Processor = {
     const dates = [];
     const invested = [];
     let cumulative = 0;
-    for (let day = cashDates[0]; day <= endDate; day = this.addDays(day, 1)) {
+    // Jeden dzień przed pierwszą transakcją, żeby na wykresie "ALL" było
+    // widać odcinek od zera do pierwszego zakupu.
+    const startDate = this.addDays(cashDates[0], -1);
+    for (let day = startDate; day <= endDate; day = this.addDays(day, 1)) {
       if (daily.has(day)) cumulative += daily.get(day);
       dates.push(day);
-      invested.push(-cumulative);
+      invested.push(cumulative === 0 ? 0 : -cumulative);
     }
     return { dates, invested_pln: invested };
   },
@@ -865,7 +868,10 @@ const Processor = {
     const usableTransactions = transactions.filter((t) => t.value_pln != null);
     if (usableTransactions.length === 0) return null;
 
-    const startDate = usableTransactions.map((t) => t.date_iso).sort()[0];
+    const firstTransactionDate = usableTransactions.map((t) => t.date_iso).sort()[0];
+    // Dzień przed pierwszą transakcją daje punkt (0, 0) i widoczny odcinek
+    // do pierwszego zakupu, zamiast wykresu zaczynającego się od razu od wartości.
+    const startDate = this.addDays(firstTransactionDate, -1);
     const endDate = new Date().toISOString().slice(0, 10);
     const dates = [];
     for (let day = startDate; day <= endDate; day = this.addDays(day, 1)) {
