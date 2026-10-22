@@ -49,6 +49,78 @@ test('parser: eksport transakcji (stary format) i kurs z pliku', () => {
   assert.equal(foreign.fx_fixed, 4.9656);
 });
 
+test('parser: transakcje walutowe rozliczane w PLN nie są przeliczane drugi raz', async () => {
+  const csv = [
+    'Walor;Giełda;K/S;Liczba;Kurs;Waluta;Wartość;Prowizja;Czas transakcji;Waluta rozliczenia;Kurs Przewalutowania',
+    'IUSA GR ETF;DEU;Kupno;41;36,52200000;EUR;7029,55;20,39;13.01.2023 09:04:19;PLN;4,6945',
+  ].join('\n');
+
+  const parsed = Processor.parseText(csv, 'transakcje_fx.csv');
+  const transaction = parsed.transactions[0];
+  assert.equal(transaction.value_currency, 'PLN');
+  assert.equal(transaction.wartosc_oryginalna, 7029.55);
+  assert.equal(transaction.fx_fixed, 4.6945);
+
+  await Processor.applyFx(parsed.transactions, async (currency, date) => {
+    throw new Error(`Nie powinno pobierać kursu ${currency} dla ${date}`);
+  });
+
+  assert.equal(transaction.kurs_przewalutowania, 1);
+  assert.equal(transaction.value_pln, 7029.55);
+  assert.equal(transaction.fee_pln, 20.39);
+  assert.ok(Math.abs(transaction.cash_flow_pln + 7049.94) < 0.0001);
+});
+
+test('migracja: naprawia stare podwójne przeliczenie FX w IndexedDB', () => {
+  const legacy = {
+    source_format: 'transactions',
+    walor: 'IUSA GR ETF',
+    ks: 'Kupno',
+    liczba: 41,
+    kurs: 36.522,
+    waluta: 'EUR',
+    waluta_rozliczenia: 'PLN',
+    wartosc_oryginalna: 7029.55,
+    prowizja_oryginalna: 20.39,
+    fx_fixed: 4.6945,
+    value_pln: 7029.55 * 4.6945,
+    fee_pln: 20.39 * 4.6945,
+    cash_flow_pln: -((7029.55 + 20.39) * 4.6945),
+  };
+
+  const changed = Processor.normalizeStoredTransactions([legacy]);
+  assert.equal(changed.length, 1);
+  assert.equal(legacy.value_currency, 'PLN');
+  assert.equal(legacy.fee_currency, 'PLN');
+  assert.equal(legacy.value_pln, 7029.55);
+  assert.equal(legacy.fee_pln, 20.39);
+  assert.ok(Math.abs(legacy.cash_flow_pln + 7049.94) < 0.0001);
+
+  const current = { ...legacy };
+  assert.equal(Processor.normalizeStoredTransactions([current]).length, 0);
+});
+
+test('parser: pominięte wiersze mają numer linii z pliku i dane do sprawdzenia', () => {
+  const csv = [
+    'Stan;Walor;Giełda;K/S;Liczba;Liczba zreal;Limit;Waluta;Data ważności;Data realizacji',
+    '',
+    'Unieważnione;CDPROJEKT;WWA;Kupno;10;10;100,00;PLN;01.01.2024;02.01.2024',
+    'Zamknięte;ASBIS;WWA;Kupno;10;0;20,00;PLN;01.01.2024;03.01.2024',
+  ].join('\n');
+
+  const result = Processor.parseText(csv, 'pominiete.csv');
+  assert.equal(result.skipped.length, 2);
+  assert.equal(result.skipped[0].line, 3);
+  assert.equal(result.skipped[0].walor, 'CDPROJEKT');
+  assert.equal(result.skipped[0].date, '02.01.2024');
+  assert.equal(result.skipped[0].side, 'Kupno');
+  assert.equal(result.skipped[0].quantity, '10');
+  assert.equal(result.skipped[0].price, '100,00');
+  assert.match(result.skipped[0].reason, /Unieważnione/);
+  assert.equal(result.skipped[1].line, 4);
+  assert.match(result.skipped[1].reason, /Zamknięte/);
+});
+
 test('parser: odrzuca nieznany format', () => {
   assert.throws(
     () => Processor.parseText('foo;bar\n1;2', 'unknown.csv'),

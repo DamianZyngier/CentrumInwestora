@@ -29,8 +29,14 @@ const DB = {
     const db = await openDB();
     return new Promise((resolve, reject) => {
       const request = db.transaction(STORE_NAME).objectStore(STORE_NAME).getAll();
-      request.onsuccess = () => resolve(request.result || []);
-      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        db.close();
+        resolve(request.result || []);
+      };
+      request.onerror = () => {
+        db.close();
+        reject(request.error);
+      };
     });
   },
 
@@ -79,9 +85,40 @@ const DB = {
         added += 1;
       }
 
-      dbTx.oncomplete = () => resolve({ added, skipped });
-      dbTx.onerror = () => reject(dbTx.error);
-      dbTx.onabort = () => reject(dbTx.error);
+      dbTx.oncomplete = () => {
+        db.close();
+        resolve({ added, skipped });
+      };
+      dbTx.onerror = () => {
+        db.close();
+        reject(dbTx.error);
+      };
+      dbTx.onabort = () => {
+        db.close();
+        reject(dbTx.error);
+      };
+    });
+  },
+
+  async putTransactions(transactions) {
+    if (!transactions || transactions.length === 0) return 0;
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const dbTx = db.transaction(STORE_NAME, 'readwrite');
+      const store = dbTx.objectStore(STORE_NAME);
+      for (const transaction of transactions) store.put(transaction);
+      dbTx.oncomplete = () => {
+        db.close();
+        resolve(transactions.length);
+      };
+      dbTx.onerror = () => {
+        db.close();
+        reject(dbTx.error);
+      };
+      dbTx.onabort = () => {
+        db.close();
+        reject(dbTx.error);
+      };
     });
   },
 
@@ -90,8 +127,18 @@ const DB = {
     return new Promise((resolve, reject) => {
       const dbTx = db.transaction(STORE_NAME, 'readwrite');
       dbTx.objectStore(STORE_NAME).clear();
-      dbTx.oncomplete = () => resolve();
-      dbTx.onerror = () => reject(dbTx.error);
+      dbTx.oncomplete = () => {
+        db.close();
+        resolve();
+      };
+      dbTx.onerror = () => {
+        db.close();
+        reject(dbTx.error);
+      };
+      dbTx.onabort = () => {
+        db.close();
+        reject(dbTx.error);
+      };
     });
   },
 };

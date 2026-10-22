@@ -41,9 +41,37 @@ function bindEvents() {
   });
 
   document.getElementById('clear-db-btn').addEventListener('click', async () => {
-    if (!confirm('Czy na pewno chcesz usunąć wszystkie załadowane dane?')) return;
-    await DB.clearAll();
-    window.location.reload();
+    try {
+      const existing = await DB.getAllTransactions();
+      const message =
+        existing.length > 0
+          ? `Czy na pewno usunąć wszystkie ${existing.length} ${plural(
+              existing.length,
+              'transakcję',
+              'transakcje',
+              'transakcji'
+            )}?`
+          : 'Baza jest już pusta. Odświeżyć widok?';
+      if (!confirm(message)) return;
+
+      await DB.clearAll();
+      const remaining = await DB.getAllTransactions();
+      if (remaining.length > 0) {
+        throw new Error(`po czyszczeniu pozostało ${remaining.length} transakcji`);
+      }
+      try {
+        for (const key of Object.keys(localStorage)) {
+          if (key.startsWith('investor:') && key !== 'investor:commissionPct') {
+            localStorage.removeItem(key);
+          }
+        }
+      } catch {
+        /* localStorage może być zablokowany */
+      }
+      window.location.reload();
+    } catch (error) {
+      setImportStatus(`Nie udało się wyczyścić danych: ${error.message}`, 'error');
+    }
   });
 
   document.getElementById('time-range-selector').addEventListener('click', (event) => {
@@ -145,6 +173,16 @@ async function importCsvFiles(files) {
   const result = await DB.saveTransactions(transactions);
   await refreshDashboard();
 
+  const stored = window.lastTransactions || [];
+  const formats = stored.reduce((counts, transaction) => {
+    const format = transaction.source_format || 'transakcje';
+    counts[format] = (counts[format] || 0) + 1;
+    return counts;
+  }, {});
+  const formatInfo = [];
+  if (formats.orders) formatInfo.push(`${formats.orders} zleceń`);
+  if (formats.transactions) formatInfo.push(`${formats.transactions} potwierdzeń`);
+
   const parts = [
     `Dodano ${result.added} ${plural(result.added, 'transakcję', 'transakcje', 'transakcji')}`,
     result.skipped > 0
@@ -153,19 +191,54 @@ async function importCsvFiles(files) {
     skipped.length > 0
       ? `odrzucono ${skipped.length} ${plural(skipped.length, 'wiersz', 'wiersze', 'wierszy')}`
       : null,
+    `w bazie: ${stored.length}${formatInfo.length > 0 ? ` (${formatInfo.join(' + ')})` : ''}`,
   ].filter(Boolean);
+
+  if (formats.orders > 0 && formats.transactions > 0) {
+    warnings.push(
+      'W bazie są jednocześnie zlecenia i potwierdzenia transakcji. Te same operacje mogą być liczone podwójnie - najlepiej wyczyść dane i zaimportuj tylko jeden format.'
+    );
+  }
 
   const details = [];
   if (skipped.length > 0) {
     const byReason = new Map();
     for (const item of skipped) {
       const key = item.reason || 'inny powód';
-      byReason.set(key, (byReason.get(key) || 0) + 1);
+      if (!byReason.has(key)) byReason.set(key, []);
+      byReason.get(key).push(item);
     }
+    const groups = [...byReason.entries()]
+      .map(([reason, items]) => {
+        const rows = [...items].sort(
+          (a, b) =>
+            String(a.file || '').localeCompare(String(b.file || '')) ||
+            (Number(a.line) || 0) - (Number(b.line) || 0)
+        );
+        const list = rows
+          .map((item) => {
+            const meta = [
+              item.date ? `data: ${item.date}` : '',
+              item.side ? `K/S: ${item.side}` : '',
+              item.quantity ? `liczba: ${item.quantity}` : '',
+              item.price ? `cena/limit: ${item.price}` : '',
+            ]
+              .filter(Boolean)
+              .map(escapeHtml)
+              .join(', ');
+            const location = `${item.file || 'plik'}:${item.line || '?'}`;
+            return `<li><code>${escapeHtml(location)}</code> — ${escapeHtml(
+              item.walor || 'brak waloru'
+            )}${meta ? ` <span class="muted">(${meta})</span>` : ''}</li>`;
+          })
+          .join('');
+        return `<div class="skip-group"><div class="skip-reason">${escapeHtml(
+          reason
+        )}: ${rows.length}</div><ul class="skip-list">${list}</ul></div>`;
+      })
+      .join('');
     details.push(
-      `<details><summary>Pominięte wiersze (${skipped.length})</summary><ul>${[...byReason.entries()]
-        .map(([reason, count]) => `<li>${escapeHtml(reason)}: ${count}</li>`)
-        .join('')}</ul></details>`
+      `<details><summary>Pominięte wiersze (${skipped.length})</summary>${groups}</details>`
     );
   }
   if (warnings.length > 0) {
@@ -202,6 +275,8 @@ function exportBackup() {
     liczba: transaction.liczba_bazowa !== undefined ? transaction.liczba_bazowa : transaction.liczba,
     kurs: transaction.kurs_bazowy !== undefined ? transaction.kurs_bazowy : transaction.kurs,
     waluta: transaction.waluta,
+    value_currency: transaction.value_currency,
+    fee_currency: transaction.fee_currency,
     wartosc_oryginalna: transaction.wartosc_oryginalna,
     prowizja_oryginalna: transaction.prowizja_oryginalna,
     data: transaction.data,
@@ -251,6 +326,13 @@ async function importBackup(file) {
       copy.date_iso =
         copy.date_iso ||
         (copy.timestamp ? new Date(copy.timestamp).toISOString().slice(0, 10) : '');
+      if (!copy.value_currency) {
+        copy.value_currency =
+          copy.source_format === 'transactions' && copy.waluta_rozliczenia
+            ? copy.waluta_rozliczenia
+            : copy.waluta;
+      }
+      if (!copy.fee_currency) copy.fee_currency = copy.value_currency;
       copy.key = copy.key || Processor.buildKey(copy);
       if (!Number.isFinite(Number(copy.timestamp)) && /^\d{4}-\d{2}-\d{2}$/.test(copy.date_iso)) {
         copy.timestamp = Date.parse(`${copy.date_iso}T00:00:00Z`);
@@ -275,6 +357,33 @@ async function importBackup(file) {
 // Dashboard
 // ---------------------------------------------------------------------------
 
+function countFormats(transactions) {
+  return (transactions || []).reduce((counts, transaction) => {
+    const format = transaction.source_format || 'transakcje';
+    counts[format] = (counts[format] || 0) + 1;
+    return counts;
+  }, {});
+}
+
+function updateDatabaseSummary(transactions) {
+  const element = document.getElementById('db-summary');
+  if (!element) return;
+  if (!transactions || transactions.length === 0) {
+    element.textContent = 'Baza transakcji jest pusta.';
+    return;
+  }
+  const formats = countFormats(transactions);
+  const formatInfo = [];
+  if (formats.orders) formatInfo.push(`${formats.orders} zleceń`);
+  if (formats.transactions) formatInfo.push(`${formats.transactions} potwierdzeń`);
+  element.textContent = `W bazie: ${transactions.length} ${plural(
+    transactions.length,
+    'transakcja',
+    'transakcje',
+    'transakcji'
+  )}${formatInfo.length ? ` (${formatInfo.join(' + ')})` : ''}.`;
+}
+
 async function refreshDashboard() {
   if (refreshing) {
     refreshQueued = true;
@@ -283,7 +392,12 @@ async function refreshDashboard() {
   refreshing = true;
   try {
     const transactions = await DB.getAllTransactions();
+    const migrated = Processor.normalizeStoredTransactions(transactions);
+    if (migrated.length > 0) {
+      await DB.putTransactions(migrated);
+    }
     window.lastTransactions = transactions;
+    updateDatabaseSummary(transactions);
     populateYearFilter(transactions);
 
     if (transactions.length === 0) {
@@ -310,6 +424,12 @@ async function refreshDashboard() {
 
     setChartStatus('Pobieram notowania i historię (pierwsze uruchomienie może potrwać)...');
     const warnings = [];
+    const formats = countFormats(transactions);
+    if (formats.orders > 0 && formats.transactions > 0) {
+      warnings.push(
+        `W bazie są jednocześnie zlecenia (${formats.orders}) i potwierdzenia transakcji (${formats.transactions}). Te same operacje mogą być liczone podwójnie. Wyczyść dane i zaimportuj tylko jeden format, najlepiej potwierdzenia transakcji.`
+      );
+    }
     if (!currentMapping || Object.keys(currentMapping).length === 0) {
       warnings.push(
         'Nie udało się wczytać mapowania instrumentów (data/reference/instruments_mapping.yaml) - używam symboli zastępczych.'

@@ -152,7 +152,9 @@ Kolumny: `Stan`, `Walor`, `Giełda`, `K/S`, `Liczba`, `Liczba zreal`, `Limit`,
 `Waluta`, `Data ważności`, ...
 
 - importowane są tylko wiersze `Stan = Zrealizowane` (oraz częściowo zrealizowane),
-- wiersze `Niezrealizowane`, `Unieważnione`, `Zamknięte` itp. są pomijane,
+- wiersze `Niezrealizowane`, `Unieważnione`, `Zamknięte` itp. są pomijane;
+  po imporcie rozwiń „Pominięte wiersze”, aby zobaczyć plik, numer linii,
+  walor, datę, K/S, liczbę i cenę/limit każdego odrzuconego wiersza,
 - liczba jednostek = `Liczba zreal`,
 - cena = `Limit` (to **kurs zlecenia**, nie zawsze rzeczywista cena realizacji);
   zlecenia z `Limit = 0` są pomijane,
@@ -171,10 +173,18 @@ Kolumny: `Walor`, `Giełda`, `K/S`, `Liczba`, `Kurs`, `Waluta`, `Wartość`,
 Ten format jest dokładniejszy (rzeczywista cena, wartość i prowizja) — jeśli
 Twój broker potrafi go wyeksportować, używaj go zamiast historii zleceń.
 
+Kolumny `Wartość` i `Prowizja` są kwotami w **walucie rozliczenia** (zwykle PLN),
+a nie w walucie waloru. Aplikacja nie przelicza ich ponownie przez
+`Kurs Przewalutowania` — dzięki temu np. `Wartość = 7029,55` dla transakcji
+w EUR pozostaje kwotą 7029,55 PLN. Starsze rekordy zapisane przed tą poprawką
+są automatycznie naprawiane przy pierwszym wczytaniu.
+
 > **Nie mieszaj obu formatów dla tych samych transakcji.** Klucz deduplikacji
 > zawiera cenę, a historia zleceń ma `Limit`, natomiast historia transakcji —
 > rzeczywistą cenę realizacji. Ta sama transakcja z dwóch plików zostałaby
-> policzona podwójnie.
+> policzona podwójnie. Aplikacja pokazuje ostrzeżenie, gdy w bazie są oba
+> formaty jednocześnie; w takim wypadku wyczyść dane i zaimportuj tylko jeden
+> format (najlepiej historię transakcji).
 
 ### Deduplikacja i splity
 
@@ -214,6 +224,10 @@ pozycja pojawi się jako niewyceniona.
 - Wyczyszczenie danych przeglądarki usuwa portfel. Rób kopie:
   **Eksport kopii (JSON)** w sekcji „Zarządzanie danymi”. Import kopii odtworzy
   dane na innym urządzeniu/originie.
+- Przycisk **Wyczyść wszystkie dane** pokazuje liczbę transakcji, usuwa też
+  cache notowań i po wyczyszczeniu sprawdza, że baza jest pusta. Sekcja
+  „Zarządzanie danymi” pokazuje na bieżąco, ile transakcji i w jakim formacie
+  znajduje się w bazie.
 
 ## Ograniczenia
 

@@ -385,6 +385,29 @@ footer {
     padding: 0;
 }
 
+.skip-group {
+    margin-top: 0.6rem;
+}
+
+.skip-reason {
+    font-weight: 600;
+    color: var(--text-color);
+}
+
+.skip-list {
+    margin-top: 0.25rem !important;
+}
+
+.skip-list li {
+    margin: 0.2rem 0;
+    line-height: 1.45;
+}
+
+.skip-list code {
+    color: var(--accent-color);
+    white-space: nowrap;
+}
+
 /* Drobne elementy */
 .badge {
     display: inline-block;

@@ -40,18 +40,20 @@ const Processor = {
 
   parseText(text, fileName = 'plik.csv', options = {}) {
     const clean = String(text || '').replace(/^\uFEFF/, '');
-    const rows = this.parseDelimited(clean, this.detectDelimiter(clean));
-    if (rows.length === 0) throw new Error('Plik jest pusty.');
+    const parsedRows = this.parseDelimitedWithLines(clean, this.detectDelimiter(clean));
+    if (parsedRows.length === 0) throw new Error('Plik jest pusty.');
 
-    const headers = rows[0].map((header) => String(header).trim());
+    const headers = parsedRows[0].cells.map((header) => String(header).trim());
     const records = [];
-    for (let i = 1; i < rows.length; i += 1) {
-      const values = rows[i];
-      if (!values || values.every((value) => String(value).trim() === '')) continue;
+    for (let i = 1; i < parsedRows.length; i += 1) {
+      const { cells, line } = parsedRows[i];
+      if (!cells || cells.every((value) => String(value).trim() === '')) continue;
       const record = {};
       headers.forEach((header, index) => {
-        record[header] = values[index] !== undefined ? String(values[index]).trim() : '';
+        record[header] = cells[index] !== undefined ? String(cells[index]).trim() : '';
       });
+      // Numer wiersza z oryginalnego pliku (z uwzględnieniem pustych linii).
+      Object.defineProperty(record, '__line', { value: line, enumerable: false });
       records.push(record);
     }
 
@@ -82,10 +84,16 @@ const Processor = {
   },
 
   parseDelimited(text, delimiter = ';') {
+    return this.parseDelimitedWithLines(text, delimiter).map((row) => row.cells);
+  },
+
+  parseDelimitedWithLines(text, delimiter = ';') {
     const rows = [];
     let row = [];
     let field = '';
     let quoted = false;
+    let physicalLine = 1;
+    let rowStartLine = 1;
 
     for (let i = 0; i < text.length; i += 1) {
       const char = text[i];
@@ -99,6 +107,7 @@ const Processor = {
           }
         } else {
           field += char;
+          if (char === '\n') physicalLine += 1;
         }
       } else if (char === '"') {
         quoted = true;
@@ -107,16 +116,18 @@ const Processor = {
         field = '';
       } else if (char === '\n') {
         row.push(field);
-        rows.push(row);
+        rows.push({ cells: row, line: rowStartLine });
         row = [];
         field = '';
+        physicalLine += 1;
+        rowStartLine = physicalLine;
       } else if (char !== '\r') {
         field += char;
       }
     }
     if (field.length > 0 || row.length > 0) {
       row.push(field);
-      rows.push(row);
+      rows.push({ cells: row, line: rowStartLine });
     }
     return rows;
   },
@@ -131,6 +142,25 @@ const Processor = {
       'Nierozpoznany format pliku. Obsługiwane są eksporty: historia zleceń (kolumny Stan, Liczba zreal, Limit) ' +
         'oraz historia transakcji (kolumny Walor, K/S, Kurs/Wartość).'
     );
+  },
+
+  buildSkippedRow(row, line, reason, walor) {
+    return {
+      line,
+      reason,
+      walor: walor || String(row['Walor'] || '').trim(),
+      date: String(
+        row['Data realizacji'] ||
+          row['Data transakcji'] ||
+          row['Czas transakcji'] ||
+          row['Data ważności'] ||
+          row['Data'] ||
+          ''
+      ).trim(),
+      side: String(row['K/S'] || '').trim(),
+      quantity: String(row['Liczba zreal'] || row['Liczba'] || '').trim(),
+      price: String(row['Limit'] || row['Kurs'] || '').trim(),
+    };
   },
 
   parseOrderRows(records, headers, options) {
@@ -148,32 +178,32 @@ const Processor = {
     }
 
     records.forEach((row, index) => {
-      const line = index + 2;
+      const line = row.__line || index + 2;
       const status = String(row['Stan'] || '').trim();
       const normalizedStatus = status.toLocaleLowerCase('pl-PL');
       // "Niezrealizowane" zawiera "zrealizowane", dlatego jawnie wykluczamy "nie...".
       if (!/zrealizowan/.test(normalizedStatus) || /^nie/.test(normalizedStatus)) {
-        skipped.push({ line, reason: `status: ${status || 'brak'}`, walor: row['Walor'] || '' });
+        skipped.push(this.buildSkippedRow(row, line, `status: ${status || 'brak'}`, row['Walor']));
         return;
       }
       const side = this.normalizeSide(row['K/S']);
       if (!side) {
-        skipped.push({ line, reason: `nieznany kierunek: ${row['K/S'] || 'brak'}`, walor: row['Walor'] || '' });
+        skipped.push(this.buildSkippedRow(row, line, `nieznany kierunek: ${row['K/S'] || 'brak'}`, row['Walor']));
         return;
       }
       const quantity = this.parseNumber(row['Liczba zreal']);
       if (!(quantity > 0)) {
-        skipped.push({ line, reason: 'liczba zrealizowana = 0', walor: row['Walor'] || '' });
+        skipped.push(this.buildSkippedRow(row, line, 'liczba zrealizowana = 0', row['Walor']));
         return;
       }
       const price = this.parseNumber(row['Limit']);
       if (!(price > 0)) {
-        skipped.push({ line, reason: 'brak ceny (Limit = 0)', walor: row['Walor'] || '' });
+        skipped.push(this.buildSkippedRow(row, line, 'brak ceny (Limit = 0)', row['Walor']));
         return;
       }
       const walor = String(row['Walor'] || '').trim();
       if (!walor) {
-        skipped.push({ line, reason: 'brak nazwy waloru' });
+        skipped.push(this.buildSkippedRow(row, line, 'brak nazwy waloru'));
         return;
       }
       const dateRaw =
@@ -184,7 +214,7 @@ const Processor = {
         '';
       const dateParts = this.parseDateParts(dateRaw);
       if (!dateParts) {
-        skipped.push({ line, reason: `nieprawidłowa data: ${dateRaw || 'brak'}`, walor });
+        skipped.push(this.buildSkippedRow(row, line, `nieprawidłowa data: ${dateRaw || 'brak'}`, walor));
         return;
       }
 
@@ -199,6 +229,7 @@ const Processor = {
         quantity,
         price,
         currency,
+        valueCurrency: currency,
         valueOriginal,
         feeOriginal,
         dateRaw,
@@ -210,7 +241,7 @@ const Processor = {
       });
 
       if (seen.has(transaction.key)) {
-        skipped.push({ line, reason: 'duplikat w pliku', walor });
+        skipped.push(this.buildSkippedRow(row, line, 'duplikat w pliku', walor));
         return;
       }
       seen.add(transaction.key);
@@ -238,20 +269,20 @@ const Processor = {
     }
 
     records.forEach((row, index) => {
-      const line = index + 2;
+      const line = row.__line || index + 2;
       const walor = String(row['Walor'] || '').trim();
       if (!walor) {
-        skipped.push({ line, reason: 'brak nazwy waloru' });
+        skipped.push(this.buildSkippedRow(row, line, 'brak nazwy waloru'));
         return;
       }
       const side = this.normalizeSide(row['K/S']);
       if (!side) {
-        skipped.push({ line, reason: `nieznany kierunek: ${row['K/S'] || 'brak'}`, walor });
+        skipped.push(this.buildSkippedRow(row, line, `nieznany kierunek: ${row['K/S'] || 'brak'}`, walor));
         return;
       }
       const quantity = this.parseNumber(row['Liczba']);
       if (!(quantity > 0)) {
-        skipped.push({ line, reason: 'liczba = 0', walor });
+        skipped.push(this.buildSkippedRow(row, line, 'liczba = 0', walor));
         return;
       }
       const price = this.parseNumber(row['Kurs']);
@@ -261,7 +292,7 @@ const Processor = {
       const dateRaw = row['Czas transakcji'] || row['Data transakcji'] || row['Data'] || '';
       const dateParts = this.parseDateParts(dateRaw);
       if (!dateParts) {
-        skipped.push({ line, reason: `nieprawidłowa data: ${dateRaw || 'brak'}`, walor });
+        skipped.push(this.buildSkippedRow(row, line, `nieprawidłowa data: ${dateRaw || 'brak'}`, walor));
         return;
       }
       const currency = String(row['Waluta'] || 'PLN').trim().toUpperCase();
@@ -277,6 +308,10 @@ const Processor = {
         quantity,
         price,
         currency,
+        // W eksporcie Bossa kolumny "Wartość" i "Prowizja" są w walucie
+        // rozliczenia (zwykle PLN), a nie w walucie waloru. Bez tej informacji
+        // applyFx przeliczałby je drugi raz przez kurs waluty.
+        valueCurrency: hasValue ? settlementCurrency : currency,
         valueOriginal,
         feeOriginal,
         dateRaw,
@@ -288,7 +323,7 @@ const Processor = {
       });
 
       if (seen.has(transaction.key)) {
-        skipped.push({ line, reason: 'duplikat w pliku', walor });
+        skipped.push(this.buildSkippedRow(row, line, 'duplikat w pliku', walor));
         return;
       }
       seen.add(transaction.key);
@@ -320,6 +355,8 @@ const Processor = {
       liczba: quantity,
       kurs: price,
       waluta: input.currency,
+      value_currency: input.valueCurrency || input.currency,
+      fee_currency: input.valueCurrency || input.currency,
       wartosc_oryginalna: input.valueOriginal,
       prowizja_oryginalna: input.feeOriginal,
       data: String(input.dateRaw || '').trim(),
@@ -431,17 +468,73 @@ const Processor = {
   // Kursy walut
   // -------------------------------------------------------------------------
 
+  /**
+   * Naprawia rekordy zapisane przez starszą wersję parsera, która dla
+   * potwierdzeń transakcji traktowała kolumnę "Wartość" (już w PLN) jak
+   * kwotę w walucie waloru i przeliczała ją przez FX po raz drugi.
+   * Zwraca tylko zmienione rekordy, gotowe do zapisania w IndexedDB.
+   */
+  normalizeStoredTransactions(transactions) {
+    const changed = [];
+    for (const transaction of transactions) {
+      if (transaction.value_currency) continue;
+
+      const tradeCurrency = String(transaction.waluta || 'PLN').toUpperCase();
+      const settlementCurrency =
+        String(transaction.waluta_rozliczenia || 'PLN').toUpperCase() || 'PLN';
+      let valueCurrency = tradeCurrency;
+
+      if (transaction.source_format === 'transactions' && transaction.wartosc_oryginalna != null) {
+        valueCurrency = settlementCurrency;
+        const fx = Number(transaction.fx_fixed);
+        const tradeValue = Number(transaction.liczba || 0) * Number(transaction.kurs || 0);
+        const ratio =
+          tradeValue > 0 ? Number(transaction.wartosc_oryginalna) / tradeValue : 0;
+        const looksLikeSettlement =
+          fx > 0 &&
+          tradeCurrency !== settlementCurrency &&
+          Math.abs(ratio - fx) <= Math.max(0.02, fx * 0.02);
+
+        if (looksLikeSettlement) {
+          transaction.value_pln = Number(transaction.wartosc_oryginalna);
+          transaction.fee_pln = Number(transaction.prowizja_oryginalna || 0);
+          transaction.cash_flow_pln =
+            transaction.ks === 'Kupno'
+              ? -(transaction.value_pln + transaction.fee_pln)
+              : transaction.value_pln - transaction.fee_pln;
+          transaction.kurs_przewalutowania = 1;
+          transaction.fx_source = 'stały (PLN)';
+        }
+      }
+
+      transaction.value_currency = valueCurrency;
+      transaction.fee_currency = valueCurrency;
+      changed.push(transaction);
+    }
+    return changed;
+  },
+
   async applyFx(transactions, provider, onProgress) {
     const pairs = new Map();
     for (const transaction of transactions) {
-      if (transaction.fx_fixed !== null && transaction.fx_fixed !== undefined) {
+      const tradeCurrency = String(transaction.waluta || 'PLN').toUpperCase();
+      const valueCurrency = String(transaction.value_currency || tradeCurrency).toUpperCase();
+      // Kurs z pliku dotyczy bezpośrednio waluty waloru. Dla transakcji, gdzie
+      // "Wartość" jest już w walucie rozliczenia (np. PLN), nie wolno go użyć
+      // drugi raz - inaczej dochodzi do podwójnego przeliczenia FX.
+      const fixedApplies =
+        transaction.fx_fixed !== null &&
+        transaction.fx_fixed !== undefined &&
+        (!transaction.value_currency || valueCurrency === tradeCurrency);
+
+      if (fixedApplies) {
         transaction.kurs_przewalutowania = transaction.fx_fixed;
         transaction.fx_source = 'z pliku';
-      } else if (transaction.waluta === 'PLN') {
+      } else if (valueCurrency === 'PLN') {
         transaction.kurs_przewalutowania = 1;
-        transaction.fx_source = 'stały';
+        transaction.fx_source = 'stały (PLN)';
       } else {
-        const key = `${transaction.waluta}|${transaction.date_iso}`;
+        const key = `${valueCurrency}|${transaction.date_iso}`;
         if (!pairs.has(key)) pairs.set(key, null);
         transaction.__fxKey = key;
       }
