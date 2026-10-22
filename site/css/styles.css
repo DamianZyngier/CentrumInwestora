@@ -427,6 +427,13 @@ footer {
     margin-top: 0.25rem;
 }
 
+.card .note {
+    font-size: 0.7rem;
+    font-weight: 400;
+    color: var(--text-muted);
+    margin-top: 0.35rem;
+}
+
 .neutral { color: var(--text-muted); }
 .small { font-size: 0.7rem; }
 .muted { color: var(--text-muted); }
