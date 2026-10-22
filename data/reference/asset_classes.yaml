@@ -1,7 +1,9 @@
-# Docelowe wagi portfela dla rekomendacji rebalancingu
+# Docelowe wagi portfela dla rekomendacji rebalancingu.
+# Wagi dotyczą wyłącznie rachunku maklerskiego. Gotówka i obligacje są poza
+# tym portfelem, dlatego nie ma tu klasy "Cash / Bonds".
+# Po usunięciu Cash / Bonds pozostałe wagi przeskalowano proporcjonalnie do 100%.
 targets:
-  "Equity - Developed": 0.50
-  "Equity - Emerging": 0.20
-  "Gold": 0.10
-  "Equity - Poland": 0.10
-  "Cash / Bonds": 0.10
+  "Equity - Developed": 0.556
+  "Equity - Emerging": 0.222
+  "Equity - Poland": 0.111
+  "Gold": 0.111

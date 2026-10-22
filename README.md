@@ -220,8 +220,9 @@ pozycja pojawi się jako niewyceniona.
 - `Limit` z historii zleceń nie jest gwarantowaną ceną realizacji.
 - Brak informacji o wpłatach/wypłatach gotówki — „kapitał netto zaangażowany”
   to suma zakupów minus wpływy ze sprzedaży, a nie stan rachunku.
-- Brak wyceny gotówki i obligacji; cele portfela zakładają 10% „Cash / Bonds”,
-  więc rekomendacja niedowagi gotówki może się pojawiać.
+- Brak wyceny gotówki i obligacji; cele portfela dotyczą wyłącznie aktywów
+  na rachunku maklerskim. Gotówka i obligacje są poza tym portfelem i nie ma
+  dla nich celu „Cash / Bonds”.
 - Rentowność to proste ROI (zysk / suma zakupów), nie XIRR.
 - Notowania mogą być opóźnione (GPW/Xetra ok. 15 min w TradingView); pierwsze
   pobranie historii może być wolniejsze z powodu limitu Yahoo (HTTP 429).
