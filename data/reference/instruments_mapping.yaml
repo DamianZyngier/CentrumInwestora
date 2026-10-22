@@ -46,6 +46,16 @@
   region: "Poland"
   currency: "PLN"
 
+# Robyg wrócił na GPW w lipcu 2026 r. Notowany jest pod tickerem ROB
+# (Yahoo: ROB.WA), a w eksporcie Bossa nazwa waloru to ROBYG.
+"ROBYG":
+  name: "Robyg S.A."
+  exchange: "WWA"
+  yahoo_symbol: "ROB.WA"
+  asset_class: "Equity - Poland"
+  region: "Poland"
+  currency: "PLN"
+
 # --- XETRA / ETF-y ---
 "BNXG GR ETF":
   name: "Invesco CoinShares Global Blockchain UCITS ETF"
