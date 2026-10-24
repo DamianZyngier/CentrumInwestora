@@ -23,7 +23,7 @@ jobs:
       - name: Copy reference data into site
         run: |
           mkdir -p site/data/reference
-          cp data/reference/*.yaml site/data/reference/
+          cp data/reference/* site/data/reference/
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
