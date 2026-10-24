@@ -203,7 +203,28 @@ są automatycznie naprawiane przy pierwszym wczytaniu.
 
 ### Dodawanie nowych instrumentów
 
-Nowy walor z CSV dopisz do `data/reference/instruments_mapping.yaml`:
+Nowe pozycje są wyceniane automatycznie. Aplikacja bierze pierwszy człon nazwy
+waloru z CSV i dokleja sufiks giełdy:
+
+| Giełda w CSV | Sufiks | Przykład |
+| --- | --- | --- |
+| `WWA` | `.WA` | `CDPROJEKT` → `CDPROJEKT.WA` |
+| `DEU`, `XETR` | `.DE` | `IUSU GR ETF` → `IUSU.DE` |
+| `LON`, `LSE` | `.L` | `EMIM LN ETF` → `EMIM.L` |
+| `FRA` | `.F` | |
+| `PAR` | `.PA` | |
+| `AMS` | `.AS` | |
+| `MIL` | `.MI` | |
+| `MAD` | `.MC` | |
+
+Dlatego nowy ETF z Bossa (np. `IUSU GR ETF` na `DEU`) działa bez żadnych zmian
+w konfiguracji. Ten sam wyliczony symbol jest używany do pobrania notowania,
+historii, splitów i do wyceny pozycji.
+
+Wpis w `data/reference/instruments_mapping.yaml` jest **opcjonalnym
+nadpisaniem**, potrzebnym tylko wtedy, gdy ticker w Bossa różni się od tickera
+notowania (np. `ROBYG` → `ROB.WA`) albo gdy chcesz ustawić własną nazwę,
+klasę aktywów i region:
 
 ```yaml
 "NAZWA Z KOLUMNY WALOR":
@@ -215,9 +236,9 @@ Nowy walor z CSV dopisz do `data/reference/instruments_mapping.yaml`:
   currency: "PLN"          # waluta zlecenia, nie notowania
 ```
 
-Bez wpisu aplikacja próbuje zgadnąć ticker (np. `CDPROJEKT` + `WWA` →
-`CDPROJEKT.WA`), ale dla nietypowych nazw może się to nie udać — wtedy
-pozycja pojawi się jako niewyceniona.
+Bez wpisu klasa aktywów nowej pozycji to `Other` — wycena i wykres są poprawne,
+ale rekomendacje rebalancingu nie przypiszą jej do celu. Jeśli chcesz, żeby
+nowy walor wchodził do rebalancingu, dopisz mu `asset_class`.
 
 ## Prywatność i kopie zapasowe
 

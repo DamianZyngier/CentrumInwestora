@@ -667,6 +667,10 @@ const Processor = {
       if (!positions.has(walor)) {
         positions.set(walor, {
           walor,
+          // Symbol rozwiązany przez API.symbolFor() (mapowanie ręczne albo
+          // ticker + sufiks giełdy). Dzięki temu nowe, niezmapowane walory są
+          // wyceniane pod tym samym symbolem, pod którym pobrano notowanie.
+          symbol: transaction.symbol || '',
           units: 0,
           cost_basis_pln: 0,
           realized_pl_pln: 0,
@@ -679,6 +683,7 @@ const Processor = {
       }
       const position = positions.get(walor);
       position.last_transaction = transaction.date_iso;
+      if (transaction.symbol) position.symbol = transaction.symbol;
 
       if (transaction.value_pln == null) {
         warnings.push(`${walor}: brak kursu walutowy dla ${transaction.date_iso} - transakcja pominięta w wycenie.`);
@@ -748,7 +753,7 @@ const Processor = {
       }
 
       const meta = mapping[position.walor] || {};
-      const symbol = meta.yahoo_symbol || position.walor;
+      const symbol = meta.yahoo_symbol || position.symbol || position.walor;
       const quote = quotes ? quotes[symbol] : null;
       const assetClass = meta.asset_class || 'Other';
       const avgCost = position.cost_basis_pln / position.units;

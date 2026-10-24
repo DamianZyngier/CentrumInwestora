@@ -256,6 +256,55 @@ test('metryki: brak notowania oznacza wycenę niepełną', () => {
   assert.equal(metrics.portfolio_list[0].value_pln, null);
 });
 
+test('metryki: niezmapowany walor używa symbolu wyliczonego z giełdy', () => {
+  // Nowe pozycje nie mają wpisu w instruments_mapping.yaml. API.symbolFor()
+  // wylicza IUSU.DE / EMIM.L, a calculateMetrics musi szukać notowań pod
+  // tymi symbolami, a nie pod pełną nazwą waloru z Bossa.
+  const transactions = [
+    {
+      walor: 'IUSU GR ETF', gielda: 'DEU', ks: 'Kupno', liczba: 10, kurs: 100, waluta: 'EUR',
+      date_iso: '2024-01-01', timestamp: Date.UTC(2024, 0, 1), value_pln: 4300,
+      fee_pln: 0, symbol: 'IUSU.DE',
+    },
+    {
+      walor: 'EMIM LN ETF', gielda: 'LON', ks: 'Kupno', liczba: 5, kurs: 30, waluta: 'GBP',
+      date_iso: '2024-02-01', timestamp: Date.UTC(2024, 1, 1), value_pln: 750,
+      fee_pln: 0, symbol: 'EMIM.L',
+    },
+  ];
+  const quotes = {
+    'IUSU.DE': { symbol: 'IUSU.DE', price: 110, currency: 'EUR' },
+    'EMIM.L': { symbol: 'EMIM.L', price: 32, currency: 'GBP' },
+  };
+
+  const metrics = Processor.calculateMetrics(transactions, {}, quotes, { PLN: 1, EUR: 4.3, GBP: 5 });
+
+  assert.equal(metrics.summary.valuation_complete, true);
+  assert.equal(metrics.summary.missing_quotes.length, 0);
+  assert.equal(metrics.summary.total_value_pln, 10 * 110 * 4.3 + 5 * 32 * 5);
+
+  const iusu = metrics.portfolio_list.find((p) => p.walor === 'IUSU GR ETF');
+  const emim = metrics.portfolio_list.find((p) => p.walor === 'EMIM LN ETF');
+  assert.equal(iusu.symbol, 'IUSU.DE');
+  assert.equal(emim.symbol, 'EMIM.L');
+  assert.ok(iusu.value_pln > 0);
+  assert.ok(emim.value_pln > 0);
+});
+
+test('metryki: brak notowania raportuje symbol wyliczony z giełdy', () => {
+  const transactions = [
+    {
+      walor: 'IUSU GR ETF', gielda: 'DEU', ks: 'Kupno', liczba: 1, kurs: 100, waluta: 'EUR',
+      date_iso: '2024-01-01', timestamp: Date.UTC(2024, 0, 1), value_pln: 430,
+      fee_pln: 0, symbol: 'IUSU.DE',
+    },
+  ];
+  const metrics = Processor.calculateMetrics(transactions, {}, {}, { PLN: 1, EUR: 4.3 });
+  assert.equal(metrics.summary.valuation_complete, false);
+  assert.equal(metrics.summary.missing_quotes[0].symbol, 'IUSU.DE');
+  assert.equal(metrics.summary.missing_quotes[0].walor, 'IUSU GR ETF');
+});
+
 test('metryki: brak kursu walutowego oznacza wycenę niepełną', () => {
   const transactions = [
     {
