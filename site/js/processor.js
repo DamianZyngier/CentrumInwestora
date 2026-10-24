@@ -1018,6 +1018,130 @@ const Processor = {
     };
   },
 
+  /**
+   * Zysk rok do roku bez wpłat i wypłat.
+   *
+   * P/L(t) = wartość portfela(t) - kapitał netto(t). Różnica P/L na koniec
+   * kolejnych lat to wypracowany zysk, a nie zmiana wartości spowodowana
+   * dopłatami. Procent liczymy od średniego kapitału (Modified Dietz), żeby
+   * duże wpłaty w trakcie roku nie zawyżały stopy zwrotu.
+   *
+   * inflationData: { rates: { 2020: 3.4, ... }, ytd: { 2026: true } }
+   * albo płaska mapa { 2020: 3.4, ... }.
+   */
+  calculateAnnualReturns(series, inflationData = {}) {
+    if (
+      !series ||
+      !Array.isArray(series.dates) ||
+      !Array.isArray(series.portfolio_value_pln) ||
+      !Array.isArray(series.invested_pln) ||
+      series.dates.length === 0
+    ) {
+      return [];
+    }
+
+    const rates =
+      inflationData && inflationData.rates ? inflationData.rates : inflationData || {};
+    const ytdYears = (inflationData && inflationData.ytd) || {};
+
+    const yearIndices = new Map();
+    series.dates.forEach((date, index) => {
+      const year = Number(String(date).slice(0, 4));
+      if (!Number.isInteger(year)) return;
+      if (!yearIndices.has(year)) yearIndices.set(year, { first: index, last: index });
+      else yearIndices.get(year).last = index;
+    });
+
+    const rows = [];
+    const years = [...yearIndices.keys()].sort((a, b) => a - b);
+    const lastYear = years[years.length - 1];
+    let previousIndex = null;
+    for (const year of years) {
+      const { first, last } = yearIndices.get(year);
+      const valueEnd = series.portfolio_value_pln[last];
+      const netEnd = series.invested_pln[last];
+      if (!Number.isFinite(valueEnd) || !Number.isFinite(netEnd)) continue;
+
+      const valueStart =
+        previousIndex == null ? 0 : Number(series.portfolio_value_pln[previousIndex]) || 0;
+      const netStart =
+        previousIndex == null ? 0 : Number(series.invested_pln[previousIndex]) || 0;
+      const plStart = valueStart - netStart;
+      const plEnd = valueEnd - netEnd;
+      const profit = plEnd - plStart;
+
+      // Dzień przepływu i proporcja okresu, w której kapitał już pracował.
+      const periodStartMs =
+        previousIndex == null
+          ? Date.parse(`${series.dates[first]}T00:00:00Z`)
+          : Date.UTC(year, 0, 1);
+      const periodEndMs = Math.min(
+        Date.UTC(year + 1, 0, 1),
+        Date.parse(`${series.dates[last]}T00:00:00Z`) + 86400000
+      );
+      const periodLength = Math.max(86400000, periodEndMs - periodStartMs);
+
+      let weightedFlows = 0;
+      for (let index = first; index <= last; index += 1) {
+        const previousInvested = index > 0 ? Number(series.invested_pln[index - 1]) || 0 : 0;
+        const flow = (Number(series.invested_pln[index]) || 0) - previousInvested;
+        if (!Number.isFinite(flow) || flow === 0) continue;
+        const flowMs = Date.parse(`${series.dates[index]}T00:00:00Z`);
+        const weight = Math.max(
+          0,
+          Math.min(1, (periodEndMs - flowMs) / periodLength)
+        );
+        weightedFlows += flow * weight;
+      }
+
+      const capitalBase = valueStart + weightedFlows;
+      const returnPct =
+        Number.isFinite(capitalBase) && capitalBase > 0
+          ? (profit / capitalBase) * 100
+          : null;
+      const inflation =
+        rates[year] != null && Number.isFinite(Number(rates[year]))
+          ? Number(rates[year])
+          : null;
+      const realReturnPct =
+        returnPct != null && inflation != null
+          ? ((1 + returnPct / 100) / (1 + inflation / 100) - 1) * 100
+          : null;
+      const realProfit =
+        realReturnPct != null && capitalBase > 0
+          ? capitalBase * (realReturnPct / 100)
+          : null;
+
+      const partialStart = previousIndex == null && series.dates[first] > `${year}-01-01`;
+      const isYtd = year === lastYear && series.dates[last] < `${year}-12-31`;
+      const labels = [];
+      if (partialStart) labels.push('od początku');
+      if (isYtd) labels.push('YTD');
+
+      rows.push({
+        year,
+        label: labels.length > 0 ? `${year} (${labels.join(', ')})` : String(year),
+        period_start: series.dates[first],
+        period_end: series.dates[last],
+        value_end_pln: valueEnd,
+        net_invested_end_pln: netEnd,
+        average_capital_pln: capitalBase,
+        profit_pln: profit,
+        return_pct: returnPct,
+        inflation_pct: inflation,
+        inflation_ytd: Boolean(ytdYears[year]),
+        real_profit_pln: realProfit,
+        real_return_pct: realReturnPct,
+        partial_start: partialStart,
+        ytd: isYtd,
+      });
+
+      previousIndex = last;
+    }
+
+    return rows;
+  },
+
   addDays(iso, days) {
     const date = new Date(`${iso}T00:00:00Z`);
     date.setUTCDate(date.getUTCDate() + days);

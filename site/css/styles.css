@@ -324,6 +324,22 @@ footer {
     margin: 0.75rem auto 0;
 }
 
+.section-note {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    line-height: 1.6;
+    margin: 0 0 0.75rem;
+}
+
+#annual-returns-status {
+    margin-top: 0.75rem;
+}
+
+#annual-returns-table th,
+#annual-returns-table td {
+    white-space: nowrap;
+}
+
 .import-options {
     display: flex;
     justify-content: center;

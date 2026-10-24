@@ -1,0 +1,21 @@
+# Źródło: GUS, Bank Danych Lokalnych - wskaźnik cen towarów i usług konsumpcyjnych (ogółem, Polska), średniorocznie.
+# 2026: średnia z Q1-Q2 2026 (dane YTD; GUS BDL, klasyfikacja COICOP 2018).
+# Ostatnia aktualizacja: 2026-10-24.
+year,avg_inflation_pct,ytd
+2010,2.58,0
+2011,4.24,0
+2012,3.56,0
+2013,0.99,0
+2014,0.05,0
+2015,-0.87,0
+2016,-0.66,0
+2017,2.08,0
+2018,1.81,0
+2019,2.3,0
+2020,3.4,0
+2021,5.1,0
+2022,14.4,0
+2023,11.4,0
+2024,3.6,0
+2025,3.6,0
+2026,2.65,1

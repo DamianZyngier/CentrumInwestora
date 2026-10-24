@@ -20,6 +20,10 @@ CSV (Bossa) → parser w przeglądarce → IndexedDB → metryki → wykresy
   również wtedy; dane są dzienne z 10 lat, a cache trzymany jest 6 godzin.
 - **Kursy walut** – NBP (kurs bieżący i pełna historia dzienna do wykresu;
   weekendy i święta są uzupełniane ostatnim kursem).
+- **Inflacja** – GUS, Bank Danych Lokalnych: średnioroczny wskaźnik cen towarów
+  i usług konsumpcyjnych (ogółem, Polska). Dane są w
+  `data/reference/inflation_pl.csv`; dla 2026 wpisano średnią YTD z Q1–Q2
+  (Q3 nie było jeszcze opublikowane w BDL w dniu aktualizacji).
 
 Notowania z GPW i Xetry w TradingView mogą być opóźnione o ok. 15 minut; w stopce
 pojawia się wtedy oznaczenie „(opóźnione)”.
@@ -231,6 +235,32 @@ pozycja pojawi się jako niewyceniona.
   „Zarządzanie danymi” pokazuje na bieżąco, ile transakcji i w jakim formacie
   znajduje się w bazie.
 
+## Inflacja i zysk realny
+
+Wykres wartości portfela ma dodatkową linię **realną**. Jest ona liczona
+w cenach z początku wybranego zakresu: startuje razem z nominalną, a następnie
+rośnie wolniej o skumulowaną inflację. Dzięki temu widać, ile z przyrostu
+portfela wynikało z samego wzrostu cen, a ile z realnego zysku.
+
+Tabela **Zysk Rok do Roku** pokazuje dla każdego roku:
+
+- wartość portfela na koniec roku,
+- zysk nominalny (zł i %),
+- średnioroczną inflację GUS,
+- zysk realny (zł i %), liczony wzorem Fishera
+  `(1 + nominalny) / (1 + inflacja) - 1`.
+
+Zysk nominalny to różnica wypracowanego P/L (`wartość portfela − kapitał netto`),
+więc wpłaty i wypłaty nie są liczone jako zysk. Procent jest liczony od
+średniego kapitału w roku z uwzględnieniem momentu wpłat (Modified Dietz).
+Pierwszy rok jest liczony od pierwszej transakcji, a bieżący rok jako YTD.
+Inflacja za 2026 to średnia z Q1–Q2, dlatego w tabeli ma oznaczenie „YTD”.
+
+Dane inflacji są statyczne, więc po publikacji nowych danych GUS trzeba
+zaktualizować `data/reference/inflation_pl.csv` (kolumna `avg_inflation_pct`;
+`ytd=1` oznacza rok niepełny). Po zmianie pliku wystarczy odświeżyć stronę,
+a przy wdrożeniu Dockerem przebudować obraz (`docker compose up -d --build`).
+
 ## Ograniczenia
 
 - `Limit` z historii zleceń nie jest gwarantowaną ceną realizacji.
@@ -239,7 +269,11 @@ pozycja pojawi się jako niewyceniona.
 - Brak wyceny gotówki i obligacji; cele portfela dotyczą wyłącznie aktywów
   na rachunku maklerskim. Gotówka i obligacje są poza tym portfelem i nie ma
   dla nich celu „Cash / Bonds”.
-- Rentowność to proste ROI (zysk / suma zakupów), nie XIRR.
+- Rentowność w podsumowaniu to proste ROI (zysk / suma zakupów), nie XIRR.
+  Tabela roczna używa średniego kapitału (Modified Dietz), a nie pełnego XIRR.
+- Wskaźnik inflacji jest średnioroczny; wewnątrz roku jest interpolowany
+  proporcjonalnie. Dla 2026 użyto średniej YTD z Q1–Q2, więc wynik może się
+  nieznacznie zmienić po publikacji kolejnych kwartałów.
 - Notowania mogą być opóźnione (GPW/Xetra ok. 15 min w TradingView); pierwsze
   pobranie historii może być wolniejsze z powodu limitu Yahoo (HTTP 429).
   Serwer od razu przełącza się wtedy na fallback `r.jina.ai`, więc wykres
@@ -278,7 +312,7 @@ site/js/processor.js    parser CSV, FX, splity, metryki, szeregi czasowe
 site/js/api.js          klient lokalnego API
 site/js/db.js           IndexedDB + deduplikacja
 site/js/main.js         UI
-data/reference/         mapowanie instrumentów, cele, splity
+data/reference/         mapowanie instrumentów, cele, splity, inflacja GUS
 tests/                  testy parsera i metryk (node --test)
 scripts/                stary pipeline Python (legacy, nieużywany w deployu)
 ```

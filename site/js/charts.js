@@ -5,6 +5,50 @@ let asChart = null;
 
 const CHART_COLORS = ['#38bdf8', '#818cf8', '#fb7185', '#fbbf24', '#34d399', '#a78bfa', '#f472b6', '#22d3ee'];
 
+function rateForYear(rates, year) {
+  if (!rates || typeof rates !== 'object') return 0;
+  if (rates[year] != null && Number.isFinite(Number(rates[year]))) return Number(rates[year]);
+  const years = Object.keys(rates)
+    .map(Number)
+    .filter(Number.isFinite)
+    .sort((a, b) => a - b);
+  if (years.length === 0) return 0;
+  const nearest = years.reduce((best, candidate) =>
+    Math.abs(candidate - year) < Math.abs(best - year) ? candidate : best
+  );
+  return Number(rates[nearest]) || 0;
+}
+
+function inflationFactor(fromDate, toDate, rates) {
+  const from = Date.parse(`${fromDate}T00:00:00Z`);
+  const to = Date.parse(`${toDate}T00:00:00Z`);
+  if (!Number.isFinite(from) || !Number.isFinite(to) || from === to) return 1;
+  if (from > to) return 1 / inflationFactor(toDate, fromDate, rates);
+
+  let factor = 1;
+  let cursor = from;
+  while (cursor < to) {
+    const year = new Date(cursor).getUTCFullYear();
+    const yearEnd = Date.UTC(year + 1, 0, 1);
+    const segmentEnd = Math.min(to, yearEnd);
+    const fraction = (segmentEnd - cursor) / (yearEnd - Date.UTC(year, 0, 1));
+    factor *= Math.pow(1 + rateForYear(rates, year) / 100, fraction);
+    cursor = segmentEnd;
+  }
+  return factor;
+}
+
+function realValues(nominal, dates, rates) {
+  if (!Array.isArray(nominal) || !Array.isArray(dates) || nominal.length === 0) return null;
+  if (!rates || Object.keys(rates).length === 0) return null;
+  // Wartość realna w cenach z początku wybranego zakresu: linia startuje
+  // razem z nominalną, a potem rośnie wolniej o skumulowaną inflację.
+  const base = dates[0];
+  return nominal.map((value, index) =>
+    value == null ? null : value / inflationFactor(base, dates[index], rates)
+  );
+}
+
 function destroyCharts() {
   if (tsChart) {
     tsChart.destroy();
@@ -16,8 +60,8 @@ function destroyCharts() {
   }
 }
 
-function initCharts(timeseries, assetStruct) {
-  updateTimeseriesChart(timeseries);
+function initCharts(timeseries, assetStruct, inflation) {
+  updateTimeseriesChart(timeseries, inflation);
   updateAssetStructChart(assetStruct);
 }
 
@@ -79,7 +123,7 @@ function formatAxisPeriod(label, unit) {
   return `${months[Number(month) - 1]} ${year}`;
 }
 
-function updateTimeseriesChart(data) {
+function updateTimeseriesChart(data, inflation) {
   const canvas = document.getElementById('timeseriesChart');
   if (!canvas || !data) return;
   if (tsChart) {
@@ -87,6 +131,7 @@ function updateTimeseriesChart(data) {
     tsChart = null;
   }
 
+  const rates = inflation && inflation.rates ? inflation.rates : inflation;
   const hasValuation = Array.isArray(data.portfolio_value_pln);
   const dates = Array.isArray(data.dates) ? data.dates : [];
   const spanDays =
@@ -108,6 +153,19 @@ function updateTimeseriesChart(data) {
       pointRadius: 0,
       borderWidth: 2,
     });
+    const real = realValues(data.portfolio_value_pln, dates, rates);
+    if (real) {
+      datasets.push({
+        label: 'Wartość realna (ceny z początku zakresu)',
+        data: real,
+        borderColor: '#fbbf24',
+        borderDash: [4, 3],
+        fill: false,
+        tension: 0.25,
+        pointRadius: 0,
+        borderWidth: 2,
+      });
+    }
   }
 
   datasets.push({

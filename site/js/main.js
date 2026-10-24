@@ -6,6 +6,7 @@ let currentRange = 'all';
 let currentTimeseries = null;
 let currentMapping = {};
 let currentTargets = {};
+let currentInflation = { rates: {}, ytd: {}, source: 'GUS' };
 
 function plural(count, one, few, many) {
   const abs = Math.abs(Number(count) || 0);
@@ -407,9 +408,14 @@ async function refreshDashboard() {
     }
     document.getElementById('dashboard-content').style.display = 'block';
 
-    const mapping = await API.getMapping();
+    const [mapping, targets, inflation] = await Promise.all([
+      API.getMapping(),
+      API.getTargets(),
+      API.getInflation(),
+    ]);
     currentMapping = mapping || {};
-    currentTargets = (await API.getTargets()) || {};
+    currentTargets = targets || {};
+    currentInflation = inflation || { rates: {}, ytd: {}, source: 'GUS' };
 
     for (const transaction of transactions) {
       transaction.symbol = API.symbolFor(transaction.walor, currentMapping, transaction.gielda);
@@ -433,6 +439,11 @@ async function refreshDashboard() {
     if (!currentMapping || Object.keys(currentMapping).length === 0) {
       warnings.push(
         'Nie udało się wczytać mapowania instrumentów (data/reference/instruments_mapping.yaml) - używam symboli zastępczych.'
+      );
+    }
+    if (!currentInflation.rates || Object.keys(currentInflation.rates).length === 0) {
+      warnings.push(
+        'Nie udało się wczytać danych inflacji (data/reference/inflation_pl.csv) - linia realna i tabela roczna będą niedostępne.'
       );
     }
     const snapshot = await API.getSnapshot(symbols, firstDate);
@@ -514,6 +525,7 @@ async function refreshDashboard() {
         currentTimeseries = series;
         setChartTitle(true);
         renderChart();
+        renderAnnualReturns(series, currentInflation);
         if (series.incomplete) {
           setChartStatus('Historia niepełna - brak notowań części walorów.');
         } else if (quoteErrors.length > 0) {
@@ -527,6 +539,7 @@ async function refreshDashboard() {
             ? 'Brak historii notowań - wykres pokazuje kapitał netto. Bieżąca wycena w podsumowaniu jest aktualna.'
             : 'Historia wyceny niedostępna - pokazano kapitał netto zaangażowany.'
         );
+        renderAnnualReturns(null, currentInflation);
       }
     } else {
       setChartStatus(
@@ -534,6 +547,7 @@ async function refreshDashboard() {
           ? 'Brak historii notowań - wykres pokazuje kapitał netto. Bieżąca wycena w podsumowaniu jest aktualna.'
           : 'Historia wyceny niedostępna - pokazano kapitał netto zaangażowany.'
       );
+      renderAnnualReturns(null, currentInflation);
     }
   } finally {
     refreshing = false;
@@ -724,13 +738,69 @@ function renderRecommendations(metrics) {
     .join('');
 }
 
+function renderAnnualReturns(series, inflation) {
+  const tbody = document.getElementById('annual-returns-body');
+  const status = document.getElementById('annual-returns-status');
+  if (!tbody || !status) return;
+
+  if (!series || !Array.isArray(series.portfolio_value_pln)) {
+    tbody.innerHTML = '';
+    status.textContent =
+      'Brak historii notowań - nie można policzyć zysku rok do roku. Bieżąca wycena w podsumowaniu pozostaje aktualna.';
+    return;
+  }
+
+  const rows = Processor.calculateAnnualReturns(series, inflation);
+  if (rows.length === 0) {
+    tbody.innerHTML = '';
+    status.textContent = 'Brak wystarczających danych do obliczenia zysku rok do roku.';
+    return;
+  }
+
+  tbody.innerHTML = rows
+    .map((row) => {
+      const nominalClass = classNameFor(row.profit_pln);
+      const realClass = classNameFor(row.real_profit_pln);
+      const inflationText =
+        row.inflation_pct == null
+          ? '—'
+          : `${formatPercent(row.inflation_pct)}${row.inflation_ytd ? ' (YTD)' : ''}`;
+      return `<tr>
+        <td>${escapeHtml(row.label)}</td>
+        <td>${formatPLN(row.value_end_pln)}</td>
+        <td class="${nominalClass}">${formatSignedPLN(row.profit_pln)}</td>
+        <td class="${nominalClass}">${formatPercent(row.return_pct, true)}</td>
+        <td>${inflationText}</td>
+        <td class="${realClass}">${formatSignedPLN(row.real_profit_pln)}</td>
+        <td class="${realClass}">${formatPercent(row.real_return_pct, true)}</td>
+      </tr>`;
+    })
+    .join('');
+
+  const notes = [
+    'Zysk nominalny to różnica wypracowanego P/L (wartość portfela − kapitał netto), więc wpłaty i wypłaty nie są liczone jako zysk.',
+    'Procent liczony od średniego kapitału w roku (z uwzględnieniem momentu wpłat).',
+    'Zysk realny = wzór Fishera z inflacją GUS.',
+  ];
+  if (rows.some((row) => row.inflation_ytd)) {
+    notes.push('2026: inflacja YTD (Q1–Q2).');
+  }
+  if (rows.some((row) => row.partial_start)) {
+    notes.push('Pierwszy rok liczony od pierwszej transakcji.');
+  }
+  if (series.incomplete) {
+    notes.push('Historia wyceny niepełna - wartości mogą różnić się od bieżącej wyceny.');
+  }
+  status.textContent = notes.join(' ');
+}
+
 // ---------------------------------------------------------------------------
 // Wykres
 // ---------------------------------------------------------------------------
 
 function renderChart() {
   if (!currentTimeseries) return;
-  updateTimeseriesChart(filterTimeseries(currentTimeseries, currentRange));
+  updateTimeseriesChart(filterTimeseries(currentTimeseries, currentRange), currentInflation);
 }
 
 function filterTimeseries(data, range) {
@@ -836,6 +906,23 @@ function formatPLN(value) {
     currency: 'PLN',
     maximumFractionDigits: 2,
   }).format(Number(value));
+}
+
+function formatSignedPLN(value) {
+  if (value == null || !Number.isFinite(Number(value))) return '—';
+  const number = Number(value);
+  if (number === 0) return formatPLN(0);
+  return `${number > 0 ? '+' : '-'}${formatPLN(Math.abs(number))}`;
+}
+
+function formatPercent(value, signed = false) {
+  if (value == null || !Number.isFinite(Number(value))) return '—';
+  const number = Number(value);
+  const text = new Intl.NumberFormat('pl-PL', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(number);
+  return `${signed && number > 0 ? '+' : ''}${text}%`;
 }
 
 function formatNumber(value, digits = 2) {

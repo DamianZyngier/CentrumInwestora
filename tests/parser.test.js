@@ -322,6 +322,60 @@ test('szereg czasowy: wartość portfela z historii i splitów', () => {
   assert.equal(series.incomplete, false);
 });
 
+test('zysk roczny: nominalny i realny bez wpłat oraz wypłat', () => {
+  const series = {
+    dates: ['2020-12-31', '2021-12-31', '2022-12-31'],
+    invested_pln: [1000, 1000, 1000],
+    portfolio_value_pln: [1000, 1200, 900],
+  };
+  const rows = Processor.calculateAnnualReturns(series, {
+    rates: { 2020: 3.4, 2021: 5, 2022: 10 },
+    ytd: {},
+  });
+
+  assert.equal(rows.length, 3);
+  assert.equal(rows[0].profit_pln, 0);
+  assert.equal(rows[1].profit_pln, 200);
+  assert.ok(Math.abs(rows[1].return_pct - 20) < 1e-9);
+  assert.ok(Math.abs(rows[1].real_return_pct - ((1.2 / 1.05 - 1) * 100)) < 1e-9);
+  assert.ok(Math.abs(rows[1].real_profit_pln - (1000 * (1.2 / 1.05 - 1))) < 1e-9);
+
+  assert.equal(rows[2].profit_pln, -300);
+  assert.ok(Math.abs(rows[2].return_pct + 25) < 1e-9);
+  assert.ok(Math.abs(rows[2].real_return_pct - ((0.75 / 1.1 - 1) * 100)) < 1e-9);
+  assert.ok(Math.abs(rows[2].real_profit_pln - (1200 * (0.75 / 1.1 - 1))) < 1e-9);
+});
+
+test('zysk roczny: procent od średniego kapitału uwzględnia moment wpłaty', () => {
+  const series = {
+    dates: ['2025-01-01', '2025-07-01', '2025-12-31'],
+    invested_pln: [1000, 1500, 1500],
+    portfolio_value_pln: [1000, 1500, 1650],
+  };
+  const [row] = Processor.calculateAnnualReturns(series, { rates: { 2025: 0 }, ytd: {} });
+
+  assert.equal(row.profit_pln, 150, 'wpłata 500 zł nie jest zyskiem');
+  assert.ok(row.average_capital_pln > 1250 && row.average_capital_pln < 1260);
+  assert.ok(row.return_pct > 11.9 && row.return_pct < 12.1);
+});
+
+test('zysk roczny: bieżący rok i inflacja YTD są oznaczone', () => {
+  const series = {
+    dates: ['2026-01-01', '2026-10-24'],
+    invested_pln: [1000, 1000],
+    portfolio_value_pln: [1000, 1050],
+  };
+  const [row] = Processor.calculateAnnualReturns(series, {
+    rates: { 2026: 2.65 },
+    ytd: { 2026: true },
+  });
+
+  assert.equal(row.label, '2026 (YTD)');
+  assert.equal(row.inflation_ytd, true);
+  assert.equal(row.inflation_pct, 2.65);
+  assert.ok(Math.abs(row.return_pct - 5) < 1e-9);
+});
+
 test('rekomendacje: niedowaga, przewaga i koncentracja', () => {
   const items = Processor.buildRecommendations(
     { 'Equity - Developed': 0.8, Gold: 0.1 },

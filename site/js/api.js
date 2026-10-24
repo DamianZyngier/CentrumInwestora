@@ -89,6 +89,33 @@ const API = {
     return data || {};
   },
 
+  async getInflation() {
+    const empty = { rates: {}, ytd: {}, source: 'GUS' };
+    try {
+      const response = await fetch(this.url('data/reference/inflation_pl.csv'), {
+        cache: 'no-cache',
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const text = await response.text();
+      const rates = {};
+      const ytd = {};
+      for (const line of text.split(/\r?\n/)) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#') || /^year\b/i.test(trimmed)) continue;
+        const [yearRaw, rateRaw, ytdRaw] = trimmed.split(',');
+        const year = Number(yearRaw);
+        const rate = Number(String(rateRaw).replace(',', '.'));
+        if (!Number.isInteger(year) || !Number.isFinite(rate)) continue;
+        rates[year] = rate;
+        if (Number(ytdRaw) === 1) ytd[year] = true;
+      }
+      return { rates, ytd, source: 'GUS' };
+    } catch (error) {
+      console.error('Nie udało się wczytać danych inflacji:', error);
+      return empty;
+    }
+  },
+
   // -------------------------------------------------------------------------
   // Notowania i waluty
   // -------------------------------------------------------------------------
